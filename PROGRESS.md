@@ -3,8 +3,8 @@
 - publish the rc.5 draft and upload `selis-1.0.0-rc.5.aab` to Play Internal testing;
 - get 12 opted-in testers into Play Closed testing, then move Closed testing from rc.1 to the current RC;
 - on the S23, check text sharpness at fit-width and 100 %, and Convert/Export on the rc.5 build.
-Next development: push `fix/redaction-and-transfer-hardening` as a PR after the owner reviews HANDBACK.md and Tier 2 runs on the AVD; then AI features (ADR 0036).
-**Last session:** 2026-11-08 — security audit run-1 leads: 1, 2, 3, 4, 5, 7 and 8 confirmed and fixed, 6 rejected (HANDBACK.md, docs/security/), on branch `fix/redaction-and-transfer-hardening` (not pushed). Tier 1 green; Tier 2 (Android build + Maestro, transfer flows now tap the sender prompt) not run.
+Next development: owner reviews HANDBACK.md and files docs/security/GHSA-draft-redaction.md; push `fix/redaction-and-transfer-hardening` as a PR, then tag v1.0.0-rc.6 (owner's go); then AI features (ADR 0036).
+**Last session:** 2026-11-09 — audit run-1 follow-up: lead 7 closed for all six source commands, LZW/ASCII85/ASCIIHex/RunLength decoders for redaction (fail closed otherwise), version 1.0.0-rc.6 with Security notes and a GHSA draft (not filed), branch not pushed. Tier 1 green; Tier 2 on the AVD (transfer ×3, pack, redact, erase, imports, pages, images, convert) all pass.
 
 
 ## v1.0.0-rc.5 (2026-11-04)

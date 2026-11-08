@@ -4,12 +4,13 @@
 #   PRE_RUN="apps/app/e2e/maestro/pack.sh pre" POST_RUN="apps/app/e2e/maestro/pack.sh check" \
 #     apps/app/e2e/maestro/run.sh <serial> apps/app/e2e/maestro/pack.yaml
 #
-# pre:   make plain / protected / tampered packs of three fixtures on the host
-#        (crates/selis-core/examples/selispack.rs), push them to Download/selis-fixtures,
-#        clear Selis and open Files in that folder.
+# pre:   make plain / protected / tampered packs of three fixtures with the Sepia theme
+#        on the host (crates/selis-core/examples/selispack.rs), push them to
+#        Download/selis-fixtures, clear Selis and open Files in that folder.
 # check: app data holds exactly the three fixtures (BLAKE3 as on the host), no staging
 #        or import copies are left, the packs in Download/ are byte-identical, and the plain
-#        pack the flow saved waits in cache/share until Selis restarts, then is gone.
+#        pack the flow saved waits in cache/share until Selis restarts, then is gone; the
+#        pack's theme is set only because the flow applied it (declined on the first pack).
 # Needs a debuggable build (run-as). Prerequisite: ./push-fixtures.sh <serial>.
 #
 # measure-pre:   (pack-measure.yaml) 50 one-page PDFs of ~6 MB in a protected pack (~300 MB,
@@ -54,6 +55,17 @@ case "$mode" in
       echo "library files differ: got [$got] want [$want]"
       exit 1
     fi
+    # The theme came from the pack only through "Apply" (security audit run-1, lead 4).
+    db="$root/.tmp/p3c/db-$serial"
+    rm -rf "$db" && mkdir -p "$db"
+    for f in selis.db selis.db-wal; do
+      adb -s "$serial" exec-out run-as "$app" cat "$f" > "$db/$f" 2>/dev/null || rm -f "$db/$f"
+    done
+    theme="$(python -I -c 'import sqlite3, sys; r = sqlite3.connect(sys.argv[1] + "/selis.db").execute("SELECT value FROM settings WHERE key = ?", ("theme",)).fetchone(); print(r[0] if r else "")' "$(win "$db")" | tr -d '\r')"
+    if [ "$theme" != '"sepia"' ]; then
+      echo "theme is [$theme], want the pack's \"sepia\" after Apply"
+      exit 1
+    fi
     left="$(sh_app 'ls pack-in 2>/dev/null; ls cache/share 2>/dev/null | grep import; true' | wc -l | tr -d ' ')"
     if [ "$left" != 0 ]; then
       echo "staging or import copies left behind ($left)"
@@ -77,7 +89,7 @@ case "$mode" in
       echo "the saved pack is still in cache/share after a restart"
       exit 1
     fi
-    echo "library: exactly the 3 fixtures (BLAKE3 match), tampered pack added nothing, no leftovers, packs untouched, saved pack gone after restart"
+    echo "library: exactly the 3 fixtures (BLAKE3 match), tampered pack added nothing, no leftovers, packs untouched, saved pack gone after restart, theme applied only on Apply"
     ;;
   measure-pre)
     work="$root/.tmp/p3-follow"

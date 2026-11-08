@@ -1,6 +1,8 @@
 # .selispack on Android (ADR 0012): "Open with" a plain pack from the Files app,
 # then a protected pack through "Open a .selispack file" (wrong passphrase first),
-# then a tampered one, which must add nothing.
+# then a tampered one, which must add nothing. The packs carry the Sepia theme: the app
+# lists it and changes nothing until "Apply" (security audit run-1, lead 4); the flow
+# declines it on the first pack and applies it on the second.
 # PRE_RUN="apps/app/e2e/maestro/pack.sh pre" makes the packs on the host, pushes
 # them to Download/selis-fixtures, clears Selis and opens Files there;
 # POST_RUN="apps/app/e2e/maestro/pack.sh check" verifies app data and the originals.
@@ -21,6 +23,16 @@ name: Selis pack open with, passphrase, tamper
 - tapOn: "More options"
 - tapOn: "Open with"
 - tapOn: "Selis"
+- extendedWaitUntil:
+    visible: "Use these settings?"
+    timeout: 30000
+- assertVisible: "This pack would change these settings on this device. Nothing has changed yet."
+- assertVisible: "Sepia"
+- tapOn: "Don't apply"
+- extendedWaitUntil:
+    notVisible: "Use these settings?"
+    timeout: 10000
+- assertNotVisible: "Settings applied."
 - extendedWaitUntil:
     visible: "Added from the file"
     timeout: 30000
@@ -61,6 +73,14 @@ name: Selis pack open with, passphrase, tamper
 - tapOn: "Passphrase"
 - inputText: "correct horse"
 - tapOn: "Open"
+# Declined last time, so offered again: applied this time (POST_RUN checks the database).
+- extendedWaitUntil:
+    visible: "Use these settings?"
+    timeout: 30000
+- tapOn: "Apply"
+- extendedWaitUntil:
+    visible: "Settings applied."
+    timeout: 10000
 - extendedWaitUntil:
     visible: "Added from the file"
     timeout: 30000

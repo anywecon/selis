@@ -35,7 +35,7 @@ win() { if command -v cygpath >/dev/null; then cygpath -m "$1"; else echo "$1"; 
 case "$mode" in
   pre)
     rm -rf "$packs"
-    (cd "$root" && cargo run -q -p selis-core --example selispack -- make "$(win "$packs")" "correct horse" \
+    (cd "$root" && cargo run -q -p selis-core --example selispack -- make --theme sepia "$(win "$packs")" "correct horse" \
       "$(win "$fixtures/greek.pdf")" "$(win "$fixtures/mixed-sizes.pdf")" "$(win "$fixtures/acroform.pdf")")
     for f in plain protected tampered; do
       adb -s "$serial" push "$(win "$packs/$f.selispack")" "$remote/$f.selispack" >/dev/null

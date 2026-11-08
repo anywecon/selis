@@ -1,0 +1,1 @@
+Security: redaction now also removes hidden copies (images under the box, thumbnails, attachments, metadata) and refuses to save when it cannot prove the result clean. Redact again documents redacted with an earlier version. Transfers and packs ask before applying settings.

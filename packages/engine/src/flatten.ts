@@ -17,7 +17,7 @@
 import { type Matrix, multiply, invert, operations, type OpEvent, pageBounds, type PaintEvent, pathText, splice, walk, fmt } from "./content-stream";
 import { type Box, boxesMeet } from "./path-clip";
 import { bytesToLatin1, decodeStream, deflate, nameOf, type PdfDict, type PdfObj } from "./pdf-objects";
-import { type Ctx, num, setStreamText, type Stream, xobject } from "./unshare";
+import { ContentRewriteError, type Ctx, num, setStreamText, type Stream, UNDECODABLE_FORM, xobject } from "./unshare";
 
 /** An RGBA raster (not premultiplied), rows from the top. */
 export type Raster = { readonly width: number; readonly height: number; readonly data: Uint8Array };
@@ -111,7 +111,7 @@ async function findTargets(ctx: Ctx, source: Source, base: Matrix, chain: readon
   });
   for (const form of forms) {
     const inner = await decodeStream(form.stream);
-    if (!inner) continue;
+    if (!inner) throw new ContentRewriteError(UNDECODABLE_FORM);
     const resources = ctx.doc.dict(form.stream.dict.get("Resources")) ?? source.resources;
     await findTargets(ctx, { stream: form.stream, text: bytesToLatin1(inner), resources }, form.matrix, [...chain, form.link], pageBox, out);
   }

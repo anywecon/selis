@@ -27,6 +27,15 @@ export class PdfFormatError extends Error {
   override readonly name = "PdfFormatError";
 }
 
+/**
+ * A redaction or erase met content it cannot read, rewrite or prove clean (a
+ * stream in an encoding it does not decode, an object it cannot account for).
+ * It fails closed: nothing is saved, and the user is told why.
+ */
+export class UncheckedContentError extends Error {
+  override readonly name: string = "UncheckedContentError";
+}
+
 const NULL: PdfObj = { t: "null" };
 
 const isWhite = (c: number) => c === 0 || c === 9 || c === 10 || c === 12 || c === 13 || c === 32;

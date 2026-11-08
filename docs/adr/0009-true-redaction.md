@@ -185,3 +185,33 @@ EmbedPDF 2.15.1 ships PDFium's redaction (`/Redact` annotations, `applyAllRedact
   - Each object still shows outside the area (≤ 24/255 per channel at a sample point).
   - Every earlier redaction test passes unchanged: black boxes ±2 pt, whiteout text, form values,
     glyph codes gone from the bytes, qpdf.
+
+## Update 2026-11-08 (residue: what the full rewrite still reached)
+
+- **Problem (security audit run-1, leads 1–3).** The full rewrite keeps every object still
+  reachable, and un-sharing only renamed the draw: the unredacted original stayed listed in a
+  resource dictionary nothing drew from any more (one shared with an unmarked page, one
+  inherited from the /Pages node, the page's own copy when PDFium did not regenerate the page).
+  A page's /Thumb and /PieceInfo, an attachment also listed in an /AF array, and a removed
+  annotation still pointed at by its popup, a reply's /IRT or a structure-tree OBJR survived the
+  same way. A form XObject in an encoding the reader cannot decode was copied but never cut, and
+  an attachment, script or annotation stream it could not decode counted as "names no redacted
+  word".
+- **Decision** (`residue.ts`, the last step of `rewritePages`, and `sanitize.ts`):
+  - XObject names that no content stream draws leave every resource dictionary whose users can
+    all be checked (pages, /Pages nodes, forms, tiling patterns, Type 3 fonts; forms, soft-mask
+    groups and patterns without resources of their own count for the dictionary they draw from).
+  - **Fail closed:** an un-shared original that is still reachable and that nothing checked draws
+    stops the redaction (`UncheckedContentError`, engine error code `unchecked`; the toast says
+    nothing was saved and why). So does a form under a mark that cannot be decoded, and an
+    attachment, script or annotation stream that cannot be decoded while there are words to look
+    for. XMP that cannot be read as XML is dropped (PDFium can drop an /ASCIIHexDecode filter and
+    keep the hex digits as the data, measured).
+  - Pages under a mark lose /Thumb and /PieceInfo; XObject copies lose /Alternates, /OPI,
+    /PieceInfo and /Thumb; an attachment that names a redacted word leaves every /AF array too;
+    annotations on no page lose every reference to them (popups with a removed parent go).
+- **Verified** (`residue.node.test.ts`, generated fixtures and the `greek` fixture): qpdf decodes
+  the whole result (`--qdf --object-streams=disable`, generalized filters) and none of the
+  original image samples, uncut form paths, thumbnail, private data, attachment, appearance
+  stream or note text is anywhere in it, as bytes or hex digits (positive control on the input
+  first); the page renders the box. The same holds for erase (ADR 0033).

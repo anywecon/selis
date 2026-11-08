@@ -6,7 +6,8 @@ import type { PageOp } from "./pages";
 
 export type PageSize = { readonly width: number; readonly height: number };
 
-export type EngineErrorCode = "password" | "format" | "closed" | "cancelled" | "init" | "unknown";
+/** `unchecked`: a redaction or erase met content it cannot read or prove removed, and saved nothing. */
+export type EngineErrorCode = "password" | "format" | "closed" | "cancelled" | "init" | "unchecked" | "unknown";
 
 export class EngineError extends Error {
   readonly code: EngineErrorCode;

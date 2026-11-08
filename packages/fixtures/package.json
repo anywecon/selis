@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./oracle": "./src/oracle.ts",
+    "./pdf-writer": "./src/pdf-writer.ts",
     "./transfer/*": "./transfer/*",
     "./scan-samples": "./src/scan-samples.ts",
     "./ssim": "./src/ssim.ts",

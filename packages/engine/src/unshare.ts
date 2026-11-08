@@ -12,16 +12,28 @@
  */
 import { apply, IDENTITY, type Matrix, multiply, operations, splice, walk } from "./content-stream";
 import { type Box, boxesMeet } from "./path-clip";
-import { bytesToLatin1, decodeStream, deflate, latin1ToBytes, nameOf, type PdfDict, PdfDocumentObjects, type PdfObj } from "./pdf-objects";
+import { bytesToLatin1, decodeStream, deflate, latin1ToBytes, nameOf, type PdfDict, PdfDocumentObjects, type PdfObj, UncheckedContentError } from "./pdf-objects";
 
 /** A content stream that cannot be read or rewritten. */
-export class ContentRewriteError extends Error {
+export class ContentRewriteError extends UncheckedContentError {
   override readonly name = "ContentRewriteError";
 }
 
+/** Thrown for a form XObject under the area that cannot be decoded: what it draws there cannot be removed. */
+export const UNDECODABLE_FORM = "a form under the area uses an encoding that cannot be rewritten";
+
+/** Keys of an XObject copy that would carry the original's content past the redaction (alternate renditions, private data). */
+const RENDITION_KEYS = ["Alternates", "OPI", "PieceInfo", "Thumb"] as const;
+
 export type Stream = Extract<PdfObj, { t: "stream" }>;
 /** One rewrite over a parsed document: the area (page space) and the streams written so far. */
-export type Ctx = { readonly doc: PdfDocumentObjects; readonly boxes: readonly Box[]; readonly changed: Set<Stream> };
+export type Ctx = {
+  readonly doc: PdfDocumentObjects;
+  readonly boxes: readonly Box[];
+  readonly changed: Set<Stream>;
+  /** The data of every XObject un-shared so far (its unredacted original). */
+  readonly originals?: Uint8Array[];
+};
 
 export const num = (o: PdfObj | undefined): number | null => (o?.t === "num" ? Number(o.v) : null);
 
@@ -122,15 +134,17 @@ async function unshareContent(ctx: Ctx, text: string, resources: PdfDict, base: 
     const x = xobject(ctx, resources, draw.name, draw.ctm);
     if (!x || !xobjects || !ctx.boxes.some((b) => boxesMeet(x.box, b))) continue;
     const copy: Stream = { t: "stream", dict: new Map(x.stream.dict), data: x.stream.data };
+    for (const k of RENDITION_KEYS) copy.dict.delete(k);
     if (x.form) {
       const own = ownResources(ctx.doc, ctx.doc.dict(x.stream.dict.get("Resources")) ?? resources);
       copy.dict.set("Resources", { t: "dict", v: own });
+      // Fail closed: what an undecodable form draws under the area could not be cut (ADR 0009 / 0033).
       const inner = await decodeStream(x.stream);
-      if (inner) {
-        const renamed = await unshareContent(ctx, bytesToLatin1(inner), own, x.matrix);
-        if (renamed !== null) setStreamText(ctx, copy, renamed);
-      }
+      if (!inner) throw new ContentRewriteError(UNDECODABLE_FORM);
+      const renamed = await unshareContent(ctx, bytesToLatin1(inner), own, x.matrix);
+      if (renamed !== null) setStreamText(ctx, copy, renamed);
     }
+    ctx.originals?.push(x.stream.data);
     const name = freshName(xobjects);
     xobjects.set(name, ctx.doc.add(copy));
     edits.push({ start: draw.start, end: draw.end, text: `/${name}` });
@@ -150,16 +164,18 @@ export async function unsharePage(ctx: Ctx, index: number): Promise<void> {
 
 /**
  * Un-shares, page by page, what each page draws over its area (page space
- * boxes) and returns the file written anew; the bytes unchanged when no
- * area meets an XObject.
+ * boxes) and returns the file written anew (the bytes unchanged when no area
+ * meets an XObject), with the data of each original that got a copy: the
+ * final rewrite checks that none of them is left where nothing draws it.
  */
-export async function unsharePages(bytes: Uint8Array, areas: ReadonlyMap<number, readonly Box[]>): Promise<Uint8Array> {
+export async function unsharePages(bytes: Uint8Array, areas: ReadonlyMap<number, readonly Box[]>): Promise<{ bytes: Uint8Array; originals: Uint8Array[] }> {
   const doc = await PdfDocumentObjects.parse(bytes);
   let touched = false;
   const changed = new Set<Stream>();
+  const originals: Uint8Array[] = [];
   for (const [index, boxes] of areas) {
     if (boxes.length === 0) continue;
-    const ctx: Ctx = { doc, boxes, changed };
+    const ctx: Ctx = { doc, boxes, changed, originals };
     const page = doc.pages()[index];
     if (!page) throw new ContentRewriteError(`no page ${index + 1}`);
     const resources = ownResources(doc, page.resources);
@@ -169,5 +185,5 @@ export async function unsharePages(bytes: Uint8Array, areas: ReadonlyMap<number,
     writeContents(ctx, page.dict, renamed);
     touched = true;
   }
-  return touched ? finish({ doc, boxes: [], changed }) : bytes;
+  return { bytes: touched ? await finish({ doc, boxes: [], changed }) : bytes, originals };
 }

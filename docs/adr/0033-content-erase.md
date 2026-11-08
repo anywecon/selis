@@ -127,3 +127,13 @@ once per open document that erasing invalidates the signature.
   - the highlight keeps only the span outside;
   - the inside note goes and the outside one stays (PDFium and pdf.js agree);
   - an erase over page 2's signature widget removes it and its field.
+
+## Update 2026-11-08 (residue)
+
+- Erase ends in the same last step as redaction (ADR 0009 update 2026-11-08): XObject names
+  nothing draws are dropped, removed annotations are detached, the page's /Thumb and /PieceInfo
+  go, and an original that stays reachable undrawn, or a form under the area in an encoding that
+  cannot be rewritten, refuses the erase (`unchecked`).
+- Inline images under the area were measured (`residue.node.test.ts`): PDFium turns the inline
+  image into an image XObject with the area blanked and the rest kept, so erase needs no step of
+  its own for them.

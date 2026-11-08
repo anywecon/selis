@@ -17,6 +17,7 @@ import {
   type ReceiveView,
   type ResumableView,
   type SendView,
+  type TicketSender,
   type TransferErrorCode,
   type TransferInfo,
   type TrustedDevice,
@@ -37,6 +38,7 @@ export type TransferApi = Pick<
   | "transferDecide"
   | "transferCancelSend"
   | "transferReceive"
+  | "transferTicketSender"
   | "transferReceiveStatus"
   | "transferCancelReceive"
   | "transferResumable"
@@ -84,6 +86,13 @@ export type TransferState = {
   resumable: ResumableView[];
   /** A deep link waiting for the endpoint to open. */
   incomingLink: string | null;
+  /**
+   * A link or code waiting for the user to say yes, with who sends it: nothing connects
+   * before (security audit run-1, lead 5; a link can come from any app or web page).
+   */
+  linkPrompt: { link: string; sender: TicketSender } | null;
+  /** The receive whose sender settings were applied or declined (asked once). */
+  settingsAnswered: string | null;
   /** The offer on screen is a library move. */
   moving: boolean;
   push: Push | null;
@@ -108,7 +117,13 @@ export type TransferState = {
   resetSend: () => void;
   /** The code ran out: a fresh one for the same documents (or the same move). */
   renewOffer: () => Promise<void>;
+  /** Reads who sends `input` and asks the user (`linkPrompt`); nothing connects yet. */
   receiveLink: (input: string) => Promise<void>;
+  /** The user said yes to `linkPrompt`: the receive starts. */
+  acceptLink: () => Promise<void>;
+  declineLink: () => void;
+  /** The sender's settings (a library move) were applied or declined. */
+  answerSettings: () => void;
   resume: (id: string) => Promise<void>;
   discard: (id: string) => Promise<void>;
   cancelReceive: () => Promise<void>;
@@ -304,6 +319,8 @@ export function createTransferStore(deps: TransferDeps): StoreApi<TransferState>
       receiveProblem: null,
       resumable: [],
       incomingLink: null,
+      linkPrompt: null,
+      settingsAnswered: null,
       moving: false,
       push: null,
       trusted: [],
@@ -413,6 +430,23 @@ export function createTransferStore(deps: TransferDeps): StoreApi<TransferState>
           return;
         }
         if (receiveRunning(get().receive)) return;
+        try {
+          const sender = await deps.api.transferTicketSender(link);
+          set({ linkPrompt: { link, sender } });
+        } catch (err) {
+          set({ linkPrompt: null, receiveProblem: receiveCallProblem(err) });
+        }
+      },
+
+      declineLink: () => set({ linkPrompt: null }),
+
+      answerSettings: () => set({ settingsAnswered: get().receiveId }),
+
+      acceptLink: async () => {
+        const prompt = get().linkPrompt;
+        set({ linkPrompt: null });
+        if (!prompt || receiveRunning(get().receive)) return;
+        const { link } = prompt;
         set({ receive: { kind: "connecting" }, receiveId: null, resumeAttempts: 0 });
         try {
           const id = await deps.api.transferReceive(link);
@@ -455,7 +489,7 @@ export function createTransferStore(deps: TransferDeps): StoreApi<TransferState>
       },
 
       resetReceive: () => {
-        set({ receiveId: null, receive: null, receiveProblem: null, incomingFrom: null, resumeAttempts: 0 });
+        set({ receiveId: null, receive: null, receiveProblem: null, incomingFrom: null, resumeAttempts: 0, settingsAnswered: null });
         schedule();
       },
 

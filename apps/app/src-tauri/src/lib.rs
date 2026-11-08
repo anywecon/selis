@@ -70,6 +70,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
         commands::transfer::transfer_receive::<tauri::Wry>,
         commands::transfer::transfer_receive_status,
         commands::transfer::transfer_cancel_receive::<tauri::Wry>,
+        commands::transfer::transfer_ticket_sender,
         commands::transfer::transfer_resumable,
         commands::transfer::transfer_resume::<tauri::Wry>,
         commands::transfer::transfer_pause,

@@ -174,6 +174,9 @@ export const api = {
     unwrap(ipc().short("transfer_receive_status", () => commands.transferReceiveStatus(id), READ)),
   transferCancelReceive: (id: string) =>
     unwrap(ipc().short("transfer_cancel_receive", () => commands.transferCancelReceive(id), READ)),
+  /** Who a transfer link comes from (shown before a receive starts). */
+  transferTicketSender: (link: string) =>
+    unwrap(ipc().short("transfer_ticket_sender", () => commands.transferTicketSender(link), READ)),
   transferResumable: () => unwrap(ipc().short("transfer_resumable", () => commands.transferResumable(), READ)),
   // A running receive is left alone: safe to repeat.
   transferResume: (id: string) => unwrap(ipc().short("transfer_resume", () => commands.transferResume(id), READ)),
@@ -274,6 +277,7 @@ export type {
   DeleteReport,
   Document,
   DocumentFile,
+  ForeignSettings,
   ImportOutcome,
   LibraryFilter,
   LibraryQuery,
@@ -300,12 +304,14 @@ export type {
   ResumableView,
   RouteView,
   SendView,
+  TicketSender,
   TransferErrorCode,
   TransferInfo,
   TrustedDevice,
   PickedImage,
   SavedVersion,
   Settings,
+  SettingsPatch,
   Signature,
   SignatureKind,
   Tag,

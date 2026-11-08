@@ -46,6 +46,7 @@ const APP_COMMANDS: &[&str] = &[
     "transfer_receive",
     "transfer_receive_status",
     "transfer_cancel_receive",
+    "transfer_ticket_sender",
     "transfer_resumable",
     "transfer_resume",
     "transfer_pause",

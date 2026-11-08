@@ -15,6 +15,13 @@ name: Transfer keeps going in the background
     visible:
       id: "transfer-screen"
     timeout: 30000
+# A link only asks first, with the sender (security audit run-1, lead 5).
+- extendedWaitUntil:
+    visible:
+      id: "transfer-link-prompt"
+    timeout: 30000
+- tapOn:
+    id: "transfer-link-accept"
 - extendedWaitUntil:
     visible:
       id: "transfer-receive-progress"

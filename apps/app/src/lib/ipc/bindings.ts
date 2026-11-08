@@ -163,6 +163,8 @@ export const commands = {
 	transferReceiveStatus: (id: string) => typedError<ReceiveView, CommandError>(__TAURI_INVOKE("transfer_receive_status", { id })),
 	/**  Stops a receive for good: nothing is added, partial data is dropped. */
 	transferCancelReceive: (id: string) => typedError<null, CommandError>(__TAURI_INVOKE("transfer_cancel_receive", { id })),
+	/**  Reads the sender of a transfer link without connecting to it. */
+	transferTicketSender: (link: string) => typedError<TicketSender, CommandError>(__TAURI_INVOKE("transfer_ticket_sender", { link })),
 	transferResumable: () => typedError<ResumableView[], CommandError>(__TAURI_INVOKE("transfer_resumable")),
 	/**  Continues a receive that stopped (see `transfer_resumable`). */
 	transferResume: (id: string) => typedError<null, CommandError>(__TAURI_INVOKE("transfer_resume", { id })),
@@ -215,7 +217,8 @@ export const commands = {
 	packExport: (requestId: string, documentIds: string[] | null, includeHistory: boolean, passphrase: string | null) => typedError<PackExportView, CommandError>(__TAURI_INVOKE("pack_export", { requestId, documentIds, includeHistory, passphrase })),
 	/**
 	 *  Imports a pack from a picked or shared file: checks everything first, then
-	 *  adds what is new (documents by BLAKE3), applies moved settings.
+	 *  adds what is new (documents by BLAKE3). The pack's settings are only described
+	 *  (security audit run-1, lead 4): nothing changes until the user confirms them.
 	 */
 	packImport: (requestId: string, source: string, passphrase: string | null) => typedError<PackImportView, CommandError>(__TAURI_INVOKE("pack_import", { requestId, source, passphrase })),
 	/**  The picker for a pack (any file type: other apps label packs as binary data). */
@@ -340,6 +343,21 @@ export type ErrorCode = "notPdf" | "emptyFile" | "notFound" | "io" | "invalidArg
 /**  The operation did not finish in time (nothing was written). */
 "timeout" | "internal";
 
+/**
+ *  Settings that came from outside this device (a `.selispack`, another device's library
+ *  move): what they would change here. Nothing is applied until the user confirms them
+ *  (security audit run-1, leads 4 and 5); the confirmed `patch` then goes to `update_settings`.
+ */
+export type ForeignSettings = {
+	/**  Only the valid values that differ from this device's. */
+	patch: SettingsPatch,
+	/**
+	 *  Versions that applying `patch` deletes at once (tightened retention), 0 otherwise: the
+	 *  second, destructive confirmation says how many.
+	 */
+	prunesVersions: number,
+};
+
 export type ImportOutcome = {
 	document: Document,
 	/**  True when an identical file (same BLAKE3) was already in the library. */
@@ -423,7 +441,12 @@ export type PackExportView =
 /**  The save dialog was cancelled: the pack was deleted, nothing was written. */
 { status: "cancelled" };
 
-export type PackImportView = { status: "imported"; documentIds: string[]; duplicates: number; signatures: number; settings: boolean } | { status: "refused"; problem: PackProblem };
+export type PackImportView = { status: "imported"; documentIds: string[]; duplicates: number; signatures: number; 
+/**
+ *  What the pack's settings would change here. Not applied: the user confirms them
+ *  first (and again when they delete history), then the UI calls `update_settings`.
+ */
+settings: ForeignSettings | null } | { status: "refused"; problem: PackProblem };
 
 /**  What the first bytes of a file say about it. */
 export type PackKind = "plain" | "encrypted";
@@ -472,10 +495,20 @@ export type ProtectionView = "none" |
 export type ReceiveView = { kind: "connecting" } | { kind: "confirm"; code: string } | { kind: "receiving"; bytes: number; total: number; route: RouteView } | { kind: "verifying" } | 
 /**  Adding the documents to the library. */
 { kind: "saving" } | { kind: "done"; documentIds: string[]; duplicates: number; 
-/**  Signatures added (library move). */
+/**  Signatures added (library move from a trusted device). */
 signatures: number; 
-/**  A library move (settings applied too). */
+/**
+ *  Signatures the sender offered that were not added: it is not a trusted device
+ *  (security audit run-1, lead 5).
+ */
+signaturesSkipped: number; 
+/**  A library move. */
 moved: boolean; 
+/**
+ *  What the sender's settings would change here. Not applied: the user confirms them
+ *  first, then the UI calls `update_settings`.
+ */
+settings: ForeignSettings | null; 
 /**  The sending device (hex id) and whether it is already trusted. */
 peer: string | null; trusted: boolean } | 
 /**
@@ -584,6 +617,17 @@ export type TakeResult =
 { status: "unknown" };
 
 export type ThemePref = "system" | "light" | "dark" | "sepia";
+
+/**
+ *  Who a transfer link or code comes from, shown before a receive starts (security audit run-1,
+ *  lead 5: a link from another app or a web page never starts one by itself).
+ */
+export type TicketSender = {
+	/**  The sending device's id (64 hex characters). */
+	peer: string,
+	/**  Its name when it is one of this device's trusted devices. */
+	trustedName: string | null,
+};
 
 export type ToolOutcome = 
 /**  A new version was saved. */

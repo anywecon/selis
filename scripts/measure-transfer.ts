@@ -234,6 +234,8 @@ async function pasteLink(cdp: Cdp, link: string): Promise<void> {
     return true;
   })()`);
   await click(cdp, "transfer-paste-submit");
+  // A link only asks first, with the sender (security audit run-1, lead 5).
+  await click(cdp, "transfer-link-accept");
 }
 
 function launch(serial: string): void {

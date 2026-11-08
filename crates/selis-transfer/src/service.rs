@@ -12,8 +12,9 @@
 //! Receiving: `receive` connects, shows the code, waits for the sender, then
 //! fetches with BLAKE3 verification per chunk into the store (partial data
 //! survives an interruption: `resume` continues it) and exports the files.
-//! Blobs the app already has (same BLAKE3, `ServiceConfig::have`) are not
-//! fetched at all.
+//! In a trusted device's push, blobs the app already has (same BLAKE3,
+//! `ServiceConfig::have`) are not fetched at all; a ticket receive fetches
+//! every blob, so a sender cannot learn which ones this device holds.
 //!
 //! Trusted devices (ADR 0014): `push` sends to a device that trusts this one and
 //! has its Receive screen open, without QR code or code. The sender dials it on
@@ -1126,10 +1127,16 @@ async fn receive_task(
     }
 
     // The payload, blob by blob, each verified per chunk. Blobs the app already
-    // has are skipped; what an earlier attempt stored is not fetched again.
+    // has are skipped only for a trusted device's push: which blobs are fetched
+    // tells the sender which ones this device holds, so a sender from a ticket
+    // (anyone with a code or link) gets every blob asked for (security audit
+    // run-1, lead 5). What an earlier attempt stored is not fetched again.
     let total = manifest.total_bytes();
     let mut known: HashMap<Hash, PathBuf> = HashMap::new();
-    if let Some(have) = &inner.have {
+    let trusted_push = lock(&inner.receives)
+        .get(id)
+        .is_some_and(|r| r.pushed_by.is_some());
+    if trusted_push && let Some(have) = &inner.have {
         for (hash, _) in manifest.blobs() {
             if let Some(path) = (have.0)(&hash) {
                 known.insert(hash, path);

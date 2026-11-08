@@ -99,3 +99,16 @@ reading differently in any other tool. Import now calls zip 9.0.5's
 a duplicate name or overlapping entries is the ordinary "damaged pack" error and nothing is
 added. The check is opt-in in the crate, so the version bump alone did not do this.
 Packs written by earlier versions pass: their writer gave both headers the same values.
+
+## Update 2026-11-08 (settings need the user's yes)
+
+- **Problem (security audit run-1, lead 4).** A plain pack opened with "Open with" (or picked)
+  imported at once and applied its settings through the user's own `apply_patch`, retention
+  included: a pack from anyone could set 2 versions per document and prune every document's
+  history, or point later transfers at another relay, before the user saw anything.
+- **Decision.** `pack_import` no longer applies settings. It returns `ForeignSettings`: only the
+  valid values that differ from this device's, and how many versions applying them would delete
+  now (`Library::preview_retention`, a dry run of `apply_retention`). The pack result shows a
+  sheet listing every change (`ForeignSettingsSheet`); "Apply" sends the patch to
+  `update_settings`, "Don't apply" changes nothing. When retention would delete versions, a
+  second sheet says how many and needs "Delete N versions and apply".

@@ -9,6 +9,7 @@ import { formatBytes } from "./format";
 import { Busy, Card, CodeBlock, Problem, Progress } from "./parts";
 import { type ScanFailure, ScanError, type Scanner, startScanner } from "./qrScanner";
 import { RESUME_ATTEMPTS_BEFORE_NEW_CODE, type TransferProblem, useTransfer } from "./transferStore";
+import { ForeignSettingsSheet } from "./ForeignSettingsSheet";
 import { ImportPack, PackResult, usePackResultShown } from "./PackSheets";
 import { SaveDevice } from "./TrustedDevices";
 
@@ -25,9 +26,51 @@ export function ReceivePanel() {
     return () => void setReceiving(false);
   }, [setReceiving]);
   const packShown = usePackResultShown();
+  const prompt = useTransfer((s) => s.linkPrompt);
   if (receive) return <ReceiveStatus view={receive} />;
+  if (prompt) return <LinkPrompt peer={prompt.sender.peer} trustedName={prompt.sender.trustedName} />;
   if (packShown) return <PackResult />;
   return <ScanOrPaste problem={problem} />;
+}
+
+/** Group of 4 hex digits: how a device id is shown (the start is enough to tell devices apart). */
+function shortId(peer: string): string {
+  return (peer.slice(0, 16).match(/.{1,4}/g) ?? []).join(" ");
+}
+
+/**
+ * Who a link or code comes from, before anything connects (security audit run-1, lead 5): a
+ * `selis://transfer` link can be opened by any app or web page.
+ */
+function LinkPrompt({ peer, trustedName }: { peer: string; trustedName: string | null }) {
+  const { t } = useTranslation();
+  const acceptLink = useTransfer((s) => s.acceptLink);
+  const declineLink = useTransfer((s) => s.declineLink);
+  return (
+    <Card testId="transfer-link-prompt">
+      <h2 className="text-[17px] font-semibold text-neutral-12">{t("transfer.prompt.title")}</h2>
+      {trustedName ? (
+        <p className="text-center text-md text-neutral-11" data-testid="transfer-link-sender">
+          {t("transfer.prompt.trusted", { name: trustedName })}
+        </p>
+      ) : (
+        <>
+          <p className="text-center text-md text-neutral-11" data-testid="transfer-link-sender">
+            {t("transfer.prompt.device", { id: shortId(peer) })}
+          </p>
+          <p className="text-center text-[13px] text-neutral-11">{t("transfer.prompt.unknownHelp")}</p>
+        </>
+      )}
+      <div className="flex w-full flex-col gap-2">
+        <Button onClick={() => void acceptLink()} data-testid="transfer-link-accept">
+          {t("transfer.prompt.accept")}
+        </Button>
+        <Button variant="secondary" onClick={declineLink} data-testid="transfer-link-decline">
+          {t("transfer.prompt.decline")}
+        </Button>
+      </div>
+    </Card>
+  );
 }
 
 function ScanOrPaste({ problem }: { problem: TransferProblem | null }) {
@@ -254,6 +297,8 @@ function ReceiveStatus({ view }: { view: ReceiveView }) {
   const newCode = useTransfer((s) => s.newCode);
   const attempts = useTransfer((s) => s.resumeAttempts);
   const from = useTransfer((s) => s.incomingFrom);
+  const settingsAnswered = useTransfer((s) => s.settingsAnswered);
+  const answerSettings = useTransfer((s) => s.answerSettings);
   const selectTab = useNavigation((s) => s.selectTab);
   const fromLine = from ? (
     <p className="text-center text-[13px] font-medium text-neutral-11" data-testid="transfer-from">
@@ -320,10 +365,18 @@ function ReceiveStatus({ view }: { view: ReceiveView }) {
               {t("transfer.receive.duplicates", { count: view.duplicates })}
             </p>
           ) : null}
-          {view.moved ? (
+          {view.signatures > 0 ? (
             <p className="text-center text-[13px] text-neutral-11" data-testid="transfer-receive-moved">
-              {t("transfer.move.movedBody")}
+              {t("transfer.move.signaturesAdded", { count: view.signatures })}
             </p>
+          ) : null}
+          {view.signaturesSkipped > 0 ? (
+            <p className="text-center text-[13px] text-neutral-11" data-testid="transfer-receive-signatures-skipped">
+              {t("transfer.move.signaturesSkipped", { count: view.signaturesSkipped })}
+            </p>
+          ) : null}
+          {view.settings && settingsAnswered !== receiveId ? (
+            <ForeignSettingsSheet settings={view.settings} from="device" onDone={answerSettings} />
           ) : null}
           <div className="flex w-full flex-col gap-2">
             {view.peer && !view.trusted ? <SaveDevice peer={view.peer} /> : null}

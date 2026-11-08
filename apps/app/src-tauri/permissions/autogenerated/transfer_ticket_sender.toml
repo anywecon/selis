@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-transfer-ticket-sender"
+description = "Enables the transfer_ticket_sender command without any pre-configured scope."
+commands.allow = ["transfer_ticket_sender"]
+
+[[permission]]
+identifier = "deny-transfer-ticket-sender"
+description = "Denies the transfer_ticket_sender command without any pre-configured scope."
+commands.deny = ["transfer_ticket_sender"]

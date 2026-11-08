@@ -46,46 +46,68 @@ struct Candidate {
     size: i64,
 }
 
+/// The versions `policy` removes, oldest first per document.
+fn plan(conn: &rusqlite::Connection, policy: &RetentionPolicy) -> Result<Vec<Candidate>> {
+    let keep = usize::try_from(policy.versions_per_document.max(2)).unwrap_or(usize::MAX);
+    let limit = i64::try_from(policy.history_limit_bytes).unwrap_or(i64::MAX);
+    // Prunable versions: not v1, not the newest of their document; oldest first.
+    let candidates: Vec<Candidate> = {
+        let mut stmt = conn.prepare(
+            "SELECT v.id, v.document_id, v.file_path, v.size_bytes FROM versions v
+              WHERE v.seq > 1
+                AND v.seq < (SELECT MAX(w.seq) FROM versions w WHERE w.document_id = v.document_id)
+              ORDER BY v.document_id, v.seq",
+        )?;
+        stmt.query_map([], |r| {
+            Ok(Candidate {
+                id: r.get(0)?,
+                document_id: r.get(1)?,
+                file_path: r.get(2)?,
+                size: r.get(3)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    let mut removed = Vec::new();
+    for group in candidates.chunk_by(|a, b| a.document_id == b.document_id) {
+        // v1 + the current version are always there on top of the group.
+        let mut count = group.len() + 2;
+        let mut bytes: i64 = group.iter().map(|c| c.size).sum();
+        for c in group {
+            if count <= keep && bytes <= limit {
+                break;
+            }
+            count -= 1;
+            bytes -= c.size;
+            removed.push(c.clone());
+        }
+    }
+    Ok(removed)
+}
+
 impl Library {
+    /// What [`Library::apply_retention`] would remove with `policy`, without removing anything
+    /// (the confirmation before settings from a pack or another device apply).
+    pub fn preview_retention(&self, policy: &RetentionPolicy) -> Result<RetentionReport> {
+        let removed = plan(&self.conn(), policy)?;
+        Ok(RetentionReport {
+            removed_versions: u32::try_from(removed.len()).unwrap_or(u32::MAX),
+            freed_bytes: removed
+                .iter()
+                .map(|c| u64::try_from(c.size).unwrap_or(0))
+                .sum(),
+        })
+    }
+
     /// Prunes the version history of every document to `policy`. Idempotent.
     pub fn apply_retention(&self, policy: &RetentionPolicy) -> Result<RetentionReport> {
-        let keep = usize::try_from(policy.versions_per_document.max(2)).unwrap_or(usize::MAX);
-        let limit = i64::try_from(policy.history_limit_bytes).unwrap_or(i64::MAX);
-        let mut removed: Vec<Candidate> = Vec::new();
+        let removed: Vec<Candidate>;
         {
             let mut conn = self.conn();
             let tx = conn.transaction()?;
-            // Prunable versions: not v1, not the newest of their document; oldest first.
-            let candidates: Vec<Candidate> = {
-                let mut stmt = tx.prepare(
-                    "SELECT v.id, v.document_id, v.file_path, v.size_bytes FROM versions v
-                      WHERE v.seq > 1
-                        AND v.seq < (SELECT MAX(w.seq) FROM versions w WHERE w.document_id = v.document_id)
-                      ORDER BY v.document_id, v.seq",
-                )?;
-                stmt.query_map([], |r| {
-                    Ok(Candidate {
-                        id: r.get(0)?,
-                        document_id: r.get(1)?,
-                        file_path: r.get(2)?,
-                        size: r.get(3)?,
-                    })
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?
-            };
-            for group in candidates.chunk_by(|a, b| a.document_id == b.document_id) {
-                // v1 + the current version are always there on top of the group.
-                let mut count = group.len() + 2;
-                let mut bytes: i64 = group.iter().map(|c| c.size).sum();
-                for c in group {
-                    if count <= keep && bytes <= limit {
-                        break;
-                    }
-                    tx.execute("DELETE FROM versions WHERE id = ?1", [&c.id])?;
-                    count -= 1;
-                    bytes -= c.size;
-                    removed.push(c.clone());
-                }
+            removed = plan(&tx, policy)?;
+            for c in &removed {
+                tx.execute("DELETE FROM versions WHERE id = ?1", [&c.id])?;
             }
             tx.commit()?;
         }
@@ -192,6 +214,22 @@ mod tests {
         let dir = tempfile::tempdir().map_err(|e| Error::io("tempdir", e))?;
         let lib = Library::open(dir.path())?;
         Ok((dir, lib))
+    }
+
+    #[test]
+    fn a_preview_counts_what_would_go_and_removes_nothing() -> Result<()> {
+        let (_dir, lib) = lib()?;
+        let id = doc_with_versions(&lib, "a", 6)?;
+        let policy = RetentionPolicy {
+            versions_per_document: 2,
+            history_limit_bytes: u64::MAX,
+        };
+        let preview = lib.preview_retention(&policy)?;
+        assert_eq!(seqs(&lib, &id)?, [1, 2, 3, 4, 5, 6]);
+        assert!(lib.resolve_location("library/a-v2.pdf")?.exists());
+        assert_eq!(preview, lib.apply_retention(&policy)?);
+        assert_eq!(preview.removed_versions, 4);
+        Ok(())
     }
 
     #[test]

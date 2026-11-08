@@ -43,10 +43,17 @@ async function receiveTab(page: Page): Promise<void> {
   await expect(page.getByTestId("transfer-receive")).toBeVisible();
 }
 
-async function pasteLink(page: Page, link: string): Promise<void> {
+async function submitLink(page: Page, link: string): Promise<void> {
   await page.getByTestId("transfer-paste").click();
   await page.getByTestId("transfer-paste-input").fill(link);
   await page.getByTestId("transfer-paste-submit").click();
+}
+
+async function pasteLink(page: Page, link: string): Promise<void> {
+  await submitLink(page, link);
+  // A link only asks first, with the sender (security audit run-1, lead 5).
+  await expect(page.getByTestId("transfer-link-sender")).toBeVisible();
+  await page.getByTestId("transfer-link-accept").click();
 }
 
 test.beforeEach(async ({ page }) => {
@@ -135,17 +142,31 @@ test("refuses what is not a transfer link", async ({ page }) => {
   await page.goto("/");
   await openTransfer(page);
   await receiveTab(page);
-  await pasteLink(page, "https://example.com/not-selis");
+  await submitLink(page, "https://example.com/not-selis");
+  await expect(page.getByTestId("transfer-link-prompt")).toHaveCount(0);
   await expect(page.getByTestId("transfer-receive-problem")).toHaveText("That isn’t a Selis transfer link.");
 });
 
-test("a selis:// link from another app opens Receive and shows the code", async ({ page }) => {
+test("a selis:// link from another app opens Receive, asks with the sender, then shows the code", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("navigation")).toBeVisible();
   await hook(page, "link", LINK);
   await expect(page.getByTestId("transfer-screen")).toBeVisible();
   await expect(page.getByRole("tab", { name: "Receive" })).toHaveAttribute("aria-selected", "true");
+  // Security audit run-1, lead 5: nothing connects before the user says yes.
+  await expect(page.getByTestId("transfer-link-sender")).toContainText("From device 5e11 5e11 5e11 5e11");
+  await expect(page.getByTestId("transfer-receive-code")).toHaveCount(0);
+  await page.getByTestId("transfer-link-accept").click();
   await expect(page.getByTestId("transfer-receive-code")).toHaveText("482 913");
+});
+
+test("declining a link from another app receives nothing", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("navigation")).toBeVisible();
+  await hook(page, "link", LINK);
+  await page.getByTestId("transfer-link-decline").click();
+  await expect(page.getByTestId("transfer-link-prompt")).toHaveCount(0);
+  await expect(page.getByTestId("transfer-receive")).toBeVisible();
 });
 
 test("an interrupted receive pauses and resumes", async ({ page }) => {

@@ -53,3 +53,17 @@ the user decides who may connect.
 - Resuming a move after an interruption works as for any receive (session token).
 - Trust is per pair and symmetric by user action; there is no discovery of untrusted devices.
 - `docs/PRIVACY.md`: the trusted list holds names and public keys, on the device only.
+
+## Update 2026-11-08 (the receiver decides; security audit run-1, lead 5)
+
+- **A link never starts a receive by itself.** A `selis://transfer` link (from any app or web
+  page), a scanned or a pasted code first shows who sends it (`transfer_ticket_sender`: the
+  device id, or its name when it is a saved device); nothing connects until "Receive".
+- **Settings from the sender are described, not applied.** The receive's `done` view carries
+  `ForeignSettings`; the same confirmation as for packs (ADR 0012 update) applies them.
+- **Signatures only from a saved (trusted) device.** Others are counted
+  (`signaturesSkipped`) and not added; the done card says so. To move signatures, save the old
+  device first, then move.
+- **Dedupe only for a trusted push.** Skipping blobs the receiver already has tells the sender
+  which BLAKE3 hashes this device holds, so a ticket receive fetches every blob (duplicates are
+  still recognised on import); a saved device's push keeps the dedupe.

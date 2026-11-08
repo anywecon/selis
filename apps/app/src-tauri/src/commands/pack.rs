@@ -38,7 +38,9 @@ pub enum PackImportView {
         document_ids: Vec<String>,
         duplicates: u32,
         signatures: u32,
-        settings: bool,
+        /// What the pack's settings would change here. Not applied: the user confirms them
+        /// first (and again when they delete history), then the UI calls `update_settings`.
+        settings: Option<settings::ForeignSettings>,
     },
     #[serde(rename_all = "camelCase")]
     Refused { problem: PackProblem },
@@ -216,7 +218,8 @@ fn chrono_free_date() -> String {
 }
 
 /// Imports a pack from a picked or shared file: checks everything first, then
-/// adds what is new (documents by BLAKE3), applies moved settings.
+/// adds what is new (documents by BLAKE3). The pack's settings are only described
+/// (security audit run-1, lead 4): nothing changes until the user confirms them.
 #[tauri::command]
 #[specta::specta]
 pub async fn pack_import<R: Runtime>(
@@ -259,19 +262,15 @@ pub async fn pack_import<R: Runtime>(
             let _ = std::fs::remove_file(&local);
             match outcome? {
                 Ok(imported) => {
-                    let had_settings = imported.settings.as_ref().is_some_and(|m| !m.is_empty());
-                    if let Some(map) = imported.settings
-                        && let Ok(patch) = serde_json::from_value::<settings::SettingsPatch>(
-                            serde_json::Value::Object(map),
-                        )
-                    {
-                        let _ = settings::apply_patch(&library, patch);
-                    }
+                    let settings = match imported.settings {
+                        Some(map) => settings::foreign_settings(&library, map)?,
+                        None => None,
+                    };
                     Ok(PackImportView::Imported {
                         document_ids: imported.document_ids,
                         duplicates: imported.duplicates,
                         signatures: imported.signatures,
-                        settings: had_settings,
+                        settings,
                     })
                 }
                 Err(e) => match problem(&e) {

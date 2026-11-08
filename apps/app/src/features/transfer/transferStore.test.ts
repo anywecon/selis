@@ -17,6 +17,7 @@ function fakeApi(overrides: Partial<TransferApi> = {}): TransferApi {
     transferDecide: vi.fn(() => Promise.resolve(null)),
     transferCancelSend: vi.fn(() => Promise.resolve(null)),
     transferReceive: vi.fn(() => Promise.resolve("r1")),
+    transferTicketSender: vi.fn(() => Promise.resolve({ peer: PEER, trustedName: null })),
     transferReceiveStatus: vi.fn((): Promise<ReceiveView> => Promise.resolve({ kind: "connecting" })),
     transferCancelReceive: vi.fn(() => Promise.resolve(null)),
     transferResumable: vi.fn(() => Promise.resolve([])),
@@ -74,9 +75,26 @@ describe("transfer store", () => {
     store.getState().setIncomingLink(LINK);
     expect(api.transferReceive).not.toHaveBeenCalled();
     await store.getState().open();
-    expect(api.transferReceive).toHaveBeenCalledWith(LINK);
+    // Security audit run-1, lead 5: a link (from any app or web page) only asks first.
+    expect(api.transferReceive).not.toHaveBeenCalled();
+    expect(store.getState().linkPrompt).toEqual({ link: LINK, sender: { peer: PEER, trustedName: null } });
     expect(store.getState().tab).toBe("receive");
+    await store.getState().acceptLink();
+    expect(api.transferReceive).toHaveBeenCalledWith(LINK);
     expect(store.getState().receiveId).toBe("r1");
+  });
+
+  it("declining a link connects to nothing", async () => {
+    const api = fakeApi();
+    const { store } = harness(api);
+    await store.getState().open();
+    store.getState().setIncomingLink(LINK);
+    await vi.waitFor(() => expect(store.getState().linkPrompt).not.toBeNull());
+    store.getState().declineLink();
+    expect(store.getState().linkPrompt).toBeNull();
+    await store.getState().acceptLink();
+    expect(api.transferReceive).not.toHaveBeenCalled();
+    expect(store.getState().receive).toBeNull();
   });
 
   it("counts failed resumes, then a new code drops the paused receive", async () => {
@@ -85,6 +103,7 @@ describe("transfer store", () => {
     const { store, flush } = harness(api);
     await store.getState().open();
     await store.getState().receiveLink(LINK);
+    await store.getState().acceptLink();
     await flush();
     expect(store.getState().receive).toEqual(paused);
     expect(store.getState().resumeAttempts).toBe(0);
@@ -144,6 +163,18 @@ describe("transfer store", () => {
     expect(store.getState().receiveProblem).toBe("invalidLink");
   });
 
+  it("an expired link is refused before the user is asked", async () => {
+    const api = fakeApi({
+      transferTicketSender: vi.fn(() => Promise.reject(new ApiError({ code: "invalidArgument", message: "expired" }))),
+    });
+    const { store } = harness(api);
+    await store.getState().open();
+    await store.getState().receiveLink(LINK);
+    expect(store.getState().receiveProblem).toBe("expired");
+    expect(store.getState().linkPrompt).toBeNull();
+    expect(api.transferReceive).not.toHaveBeenCalled();
+  });
+
   it("maps an expired ticket from Rust to the expired message", async () => {
     const api = fakeApi({
       transferReceive: vi.fn(() => Promise.reject(new ApiError({ code: "invalidArgument", message: "expired" }))),
@@ -151,6 +182,7 @@ describe("transfer store", () => {
     const { store } = harness(api);
     await store.getState().open();
     await store.getState().receiveLink(LINK);
+    await store.getState().acceptLink();
     expect(store.getState().receiveProblem).toBe("expired");
     expect(store.getState().receive).toBeNull();
   });
@@ -197,12 +229,23 @@ describe("transfer store", () => {
     const views: ReceiveView[] = [
       { kind: "confirm", code: "111222" },
       { kind: "receiving", bytes: 1, total: 2, route: "relay" },
-      { kind: "done", documentIds: ["x"], duplicates: 0, signatures: 0, moved: false, peer: PEER, trusted: true },
+      {
+        kind: "done",
+        documentIds: ["x"],
+        duplicates: 0,
+        signatures: 0,
+        signaturesSkipped: 0,
+        moved: false,
+        settings: null,
+        peer: PEER,
+        trusted: true,
+      },
     ];
     const api = fakeApi({ transferReceiveStatus: vi.fn((): Promise<ReceiveView> => Promise.resolve(views.shift() ?? { kind: "connecting" })) });
     const { store, flush, received } = harness(api);
     await store.getState().open();
     await store.getState().receiveLink(LINK);
+    await store.getState().acceptLink();
     await flush();
     await flush();
     await flush();
@@ -212,7 +255,9 @@ describe("transfer store", () => {
       documentIds: ["x"],
       duplicates: 0,
       signatures: 0,
+      signaturesSkipped: 0,
       moved: false,
+      settings: null,
       peer: PEER,
       trusted: true,
     });

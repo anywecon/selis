@@ -20,8 +20,12 @@ name: Transfer keeps going in the background
     visible:
       id: "transfer-link-prompt"
     timeout: 30000
+# The devtools hierarchy reports this button without its testid (measured on the AVD): its
+# label, below the sender line (the "Receive" tab is above it).
 - tapOn:
-    id: "transfer-link-accept"
+    text: "Receive"
+    below:
+      id: "transfer-link-sender"
 - extendedWaitUntil:
     visible:
       id: "transfer-receive-progress"

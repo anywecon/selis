@@ -3,8 +3,8 @@
 - publish the rc.5 draft and upload `selis-1.0.0-rc.5.aab` to Play Internal testing;
 - get 12 opted-in testers into Play Closed testing, then move Closed testing from rc.1 to the current RC;
 - on the S23, check text sharpness at fit-width and 100 %, and Convert/Export on the rc.5 build.
-Next development: AI features, decided first in ADR 0036.
-**Last session:** 2026-11-04 — zip security fix and rc.5 tagged. CI green on main and the tag; Maestro 27/27 on AVD 36; locally two mDNS transfer tests fail because of this host's network (they pass in CI).
+Next development: push `fix/redaction-and-transfer-hardening` as a PR after the owner reviews HANDBACK.md and Tier 2 runs on the AVD; then AI features (ADR 0036).
+**Last session:** 2026-11-08 — security audit run-1 leads: 1, 2, 3, 4, 5, 7 and 8 confirmed and fixed, 6 rejected (HANDBACK.md, docs/security/), on branch `fix/redaction-and-transfer-hardening` (not pushed). Tier 1 green; Tier 2 (Android build + Maestro, transfer flows now tap the sender prompt) not run.
 
 
 ## v1.0.0-rc.5 (2026-11-04)

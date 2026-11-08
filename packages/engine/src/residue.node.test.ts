@@ -650,10 +650,10 @@ function drawnThroughInheritors(): ArrayBuffer {
   return document(
     "",
     [
-      { content: lineOp, resources: { Font: { F1: helv }, XObject: xobjects } as unknown as PdfDict },
+      { content: lineOp, resources: { Font: { F1: helv }, XObject: xobjects } },
       {
         content: page2,
-        resources: { Font: { T3: t3 }, XObject: xobjects, ExtGState: { GS1: { SMask: { S: n("Luminosity"), G: group } } } } as unknown as PdfDict,
+        resources: { Font: { T3: t3 }, XObject: xobjects, ExtGState: { GS1: { SMask: { S: n("Luminosity"), G: group } } } },
         extra: () => ({ Annots: [stamp] }),
       },
     ],

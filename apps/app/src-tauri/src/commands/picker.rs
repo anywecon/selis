@@ -71,11 +71,18 @@ pub(crate) fn granted_source<R: Runtime>(
     app: &AppHandle<R>,
     source: &str,
 ) -> CommandResult<FilePath> {
+    // As handed out, or as the UI trimmed it (a picked name may start or end with a space).
+    let granted = app.try_state::<Arc<GrantedSources>>().and_then(|g| {
+        [source, source.trim()]
+            .into_iter()
+            .find(|s| g.contains(s))
+            .map(str::to_owned)
+    });
+    if let Some(source) = granted {
+        return parse_source(&source);
+    }
     let source = source.trim();
-    let granted = app
-        .try_state::<Arc<GrantedSources>>()
-        .is_some_and(|g| g.contains(source));
-    if granted || dev_inbox(app).is_some_and(|inbox| in_folder(&inbox, source)) {
+    if dev_inbox(app).is_some_and(|inbox| in_folder(&inbox, source)) {
         return parse_source(source);
     }
     Err(CommandError::new(

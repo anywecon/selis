@@ -22,9 +22,14 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let dir = tempfile::tempdir().expect("temp dir");
+        let mut context = mock_context(noop_assets());
+        // Every app directory (the cache with dev-inbox and share/) inside the temp dir.
+        context.config_mut().app.app_directories_override = Some(
+            tauri::utils::config::AppDirectoriesOverride::Root(dir.path().join("dirs")),
+        );
         let app = mock_builder()
             .plugin(tauri_plugin_fs::init())
-            .build(mock_context(noop_assets()))
+            .build(context)
             .expect("mock app");
         app.manage(Arc::new(
             Library::open(dir.path().join("app")).expect("library"),
@@ -249,7 +254,6 @@ fn pack_import_opens_only_a_granted_source() {
         matches!(&view, super::pack::PackImportView::Imported { document_ids, .. } if document_ids.len() == 1),
         "{view:?}"
     );
-    cleanup_share_dir(&fx);
 }
 
 /// The dev inbox (debug and `measure` builds) admits only files directly inside it.
@@ -266,21 +270,11 @@ fn the_dev_inbox_admits_no_path_out_of_it() {
     std::fs::write(&outside, PDF).expect("write");
     let escape = inbox.join("..").join("source-test-outside.pdf");
     let escape = escape.to_string_lossy().into_owned();
+    #[cfg(debug_assertions)]
     assert!(super::picker::granted_source(&fx.handle(), &inside.to_string_lossy()).is_ok());
     refused(super::picker::granted_source(&fx.handle(), &escape));
     refused(super::picker::granted_source(
         &fx.handle(),
         &format!("file://{}", inside.display()),
     ));
-    let _ = std::fs::remove_file(&inside);
-    let _ = std::fs::remove_file(&outside);
-    let _ = std::fs::remove_dir(&inbox);
-    let _ = std::fs::remove_dir(&cache);
-}
-
-fn cleanup_share_dir(fx: &Fixture) {
-    if let Ok(cache) = fx.app.path().app_cache_dir() {
-        let _ = std::fs::remove_dir(cache.join("share"));
-        let _ = std::fs::remove_dir(&cache);
-    }
 }

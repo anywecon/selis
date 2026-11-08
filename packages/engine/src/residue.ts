@@ -61,7 +61,10 @@ const dictOf = (o: PdfObj): PdfDict | null => (o.t === "dict" ? o.v : o.t === "s
 class Usage {
   readonly used = new Map<PdfDict, Set<string>>();
   readonly unknown = new Set<PdfDict>();
-  /** Every stream reached through a drawn name. */
+  /**
+   * Every stream drawn on the way from a page's content or an annotation's appearance
+   * (a "live" walk); a form nothing draws does not make what it names drawn.
+   */
   readonly drawn = new Set<Stream>();
   private readonly walked = new Set<string>();
   private readonly ids = new Map<object, number>();
@@ -85,11 +88,14 @@ class Usage {
     return s;
   }
 
-  /** Content `data` drawn with resources `res` (null: the content has none to draw from). */
-  async content(data: Stream | readonly Stream[], res: PdfDict | null): Promise<void> {
+  /**
+   * Content `data` drawn with resources `res` (null: the content has none to draw from).
+   * `live`: reached from a page or an annotation appearance (what it draws counts as drawn).
+   */
+  async content(data: Stream | readonly Stream[], res: PdfDict | null, live: boolean): Promise<void> {
     const parts: readonly Stream[] = "t" in data ? [data] : data;
     if (res === null) return;
-    const key = `${parts.map((p) => this.id(p)).join(",")}@${this.id(res)}`;
+    const key = `${parts.map((p) => this.id(p)).join(",")}@${this.id(res)}${live ? "+" : ""}`;
     if (this.walked.has(key)) return;
     this.walked.add(key);
     const texts: string[] = [];
@@ -115,30 +121,48 @@ class Usage {
       names.add(name);
       const target = this.doc.get(xobjects?.get(name));
       if (target.t !== "stream") continue;
-      this.drawn.add(target);
-      // A form without resources of its own draws from the ones it is drawn with.
-      if (nameOf(target.dict.get("Subtype")) === "Form" && !target.dict.has("Resources")) await this.content(target, res);
+      if (live) this.drawn.add(target);
+      if (nameOf(target.dict.get("Subtype")) !== "Form") continue;
+      const own = this.doc.dict(target.dict.get("Resources"));
+      // A form without resources (or without an /XObject of its own) draws from the ones it is
+      // drawn with (PDFium and other readers fall back to them).
+      if (!own?.has("XObject")) await this.content(target, res, live);
+      if (own && live) await this.content(target, own, true);
     }
-    await this.inheritors(res);
+    await this.inheritors(res, live);
+  }
+
+  /** The appearance streams (/N, /R, /D, and their states) of an annotation. */
+  appearances(annot: PdfDict): Stream[] {
+    const out: Stream[] = [];
+    for (const v of this.doc.dict(annot.get("AP"))?.values() ?? []) {
+      const s = this.doc.get(v);
+      if (s.t === "stream") out.push(s);
+      else if (s.t === "dict") for (const state of s.v.values()) {
+        const st = this.doc.get(state);
+        if (st.t === "stream") out.push(st);
+      }
+    }
+    return out;
   }
 
   /** Type 3 glyphs, soft-mask groups and patterns without resources of their own use `res` too. */
-  private async inheritors(res: PdfDict): Promise<void> {
+  private async inheritors(res: PdfDict, live: boolean): Promise<void> {
     for (const font of this.doc.dict(res.get("Font"))?.values() ?? []) {
       const f = this.doc.dict(font);
       if (!f || nameOf(f.get("Subtype")) !== "Type3" || f.has("Resources")) continue;
       for (const proc of this.doc.dict(f.get("CharProcs"))?.values() ?? []) {
         const s = this.doc.get(proc);
-        if (s.t === "stream") await this.content(s, res);
+        if (s.t === "stream") await this.content(s, res, live);
       }
     }
     for (const gs of this.doc.dict(res.get("ExtGState"))?.values() ?? []) {
       const group = this.doc.get(this.doc.dict(this.doc.dict(gs)?.get("SMask"))?.get("G"));
-      if (group.t === "stream" && !group.dict.has("Resources")) await this.content(group, res);
+      if (group.t === "stream" && !group.dict.has("Resources")) await this.content(group, res, live);
     }
     for (const pattern of this.doc.dict(res.get("Pattern"))?.values() ?? []) {
       const p = this.doc.get(pattern);
-      if (p.t === "stream" && !p.dict.has("Resources")) await this.content(p, res);
+      if (p.t === "stream" && !p.dict.has("Resources")) await this.content(p, res, live);
     }
   }
 }
@@ -183,7 +207,17 @@ export async function pruneUnusedXObjects(doc: PdfDocumentObjects, originals: re
   for (const p of pageList) {
     const c = doc.get(p.dict.get("Contents"));
     const parts = c.t === "stream" ? [c] : c.t === "arr" ? c.v.map((x) => doc.get(x)).filter((x): x is Stream => x.t === "stream") : [];
-    await usage.content(parts, p.resources);
+    await usage.content(parts, p.resources, true);
+    // Annotation appearances: their own resources, or (without) the page's.
+    for (const a of doc.array(p.dict.get("Annots")) ?? []) {
+      const annot = doc.dict(a);
+      if (!annot) continue;
+      for (const ap of usage.appearances(annot)) {
+        const own = doc.dict(ap.dict.get("Resources"));
+        if (own) await usage.content(ap, own, true);
+        if (!own?.has("XObject")) await usage.content(ap, p.resources, true);
+      }
+    }
   }
   // Every other holder of a /Resources dictionary.
   const resourceDicts = new Set<PdfDict>();
@@ -193,7 +227,7 @@ export async function pruneUnusedXObjects(doc: PdfDocumentObjects, originals: re
       resourceDicts.add(d);
       const owned = contentOfOwner(doc, parent, pages);
       if (owned === null) usage.unknown.add(d);
-      else if (owned !== "pages") await usage.content(owned, d);
+      else if (owned !== "pages") await usage.content(owned, d, false);
     }
   }
   // A resource dictionary also held under another key (an /AcroForm /DR, say) has users not checked here.

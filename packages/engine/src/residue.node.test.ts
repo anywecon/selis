@@ -401,6 +401,21 @@ function sharedWithAcroForm(): ArrayBuffer {
   return document("", [{ content: lineOp, resources: res as unknown as PdfDict }, { content: IMAGE_DRAW, resources: res as unknown as PdfDict }], null, () => ({ AcroForm: { Fields: [], DR: res } }), w);
 }
 
+/** L1, fail closed: a form nothing draws (only listed in /AcroForm /DR) names the original image. */
+function originalBehindDeadForm(): ArrayBuffer {
+  const w = new PdfWriter("residue-dead-form");
+  const helv = helvetica(w);
+  const im = image(w, IMAGE_SIZE, imageData(5));
+  const dead = w.addStream({ Type: n("XObject"), Subtype: n("Form"), BBox: [0, 0, 1, 1], Resources: { XObject: { Im0: im } } }, "/Im0 Do");
+  return document(
+    "",
+    [{ content: `${lineOp}\n${IMAGE_DRAW}`, resources: { Font: { F1: helv }, XObject: { Im1: im } } }],
+    null,
+    () => ({ AcroForm: { Fields: [], DR: { XObject: { Dead: dead } } } }),
+    w,
+  );
+}
+
 describe("L1: no original XObject survives a redaction or erase", () => {
   it("redaction, shared resource dictionary (greek fixture): page 1 still names the image page 2 redacts", async () => {
     const input = greek();
@@ -460,6 +475,11 @@ describe("L1: no original XObject survives a redaction or erase", () => {
     const input = sharedWithAcroForm();
     await expect(redact(input, 1, [IMAGE_LEFT])).rejects.toThrow(/cannot be checked/);
     await expect(erase(input, 1, [IMAGE_LEFT])).rejects.toThrow(/cannot be checked/);
+  });
+
+  it("refuses when only a form that nothing draws still names the original", async () => {
+    const input = originalBehindDeadForm();
+    await expect(redact(input, 0, [IMAGE_LEFT])).rejects.toThrow(/cannot be checked/);
   });
 
   it("erase, an image inside a form drawn once", async () => {
@@ -570,4 +590,104 @@ describe("L6: inline images", () => {
     expectGone(input, out, [inlineLeftRun()]);
     await expectBlackBox(out, 0, INLINE_AREA);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Over-pruning guard: what is still drawn stays (code review of the fix)
+// ---------------------------------------------------------------------------
+
+/** A solid 8 × 8 RGB image. */
+const solid = (rgb: readonly [number, number, number]) => samples(8, () => rgb);
+const KEEP = {
+  formNoResources: [200, 30, 30],
+  formNoXObject: [30, 160, 30],
+  appearance: [30, 30, 200],
+  type3: [200, 160, 30],
+  softMask: [255, 255, 255],
+  sharedPage2: [120, 30, 160],
+} as const;
+
+/**
+ * Page 1: the redacted line. Page 2 (no mark, so PDFium leaves it alone and only the pruning
+ * touches its dictionaries) draws images only through what has no resources of its own: a form
+ * without /Resources, a form whose /Resources has no /XObject, a stamp appearance without
+ * /Resources, a Type 3 glyph without /Resources, a soft-mask group without /Resources; and one
+ * image directly. Both pages share one /XObject subdictionary.
+ */
+function drawnThroughInheritors(): ArrayBuffer {
+  const w = new PdfWriter("residue-keep");
+  const helv = helvetica(w);
+  const im = Object.fromEntries(Object.entries(KEEP).map(([k, rgb]) => [k, image(w, 8, solid(rgb))])) as Record<keyof typeof KEEP, Ref>;
+  const draw = (name: string) => `q 100 0 0 100 0 0 cm /${name} Do Q`;
+  const formA = w.addStream({ Type: n("XObject"), Subtype: n("Form"), BBox: [0, 0, 100, 100] }, draw("ImA"));
+  const formB = w.addStream({ Type: n("XObject"), Subtype: n("Form"), BBox: [0, 0, 100, 100], Resources: { Font: { F1: helv } } }, draw("ImB"));
+  const ap = w.addStream({ Type: n("XObject"), Subtype: n("Form"), BBox: [0, 0, 100, 100] }, draw("ImC"));
+  const glyph = w.addStream({}, `100 0 d0 ${draw("ImD")}`);
+  const t3 = w.add({
+    Type: n("Font"),
+    Subtype: n("Type3"),
+    FontBBox: [0, 0, 100, 100],
+    FontMatrix: [0.01, 0, 0, 0.01, 0, 0],
+    CharProcs: { g: glyph },
+    Encoding: { Type: n("Encoding"), Differences: [65, n("g")] },
+    FirstChar: 65,
+    LastChar: 65,
+    Widths: [100],
+  });
+  const group = w.addStream(
+    { Type: n("XObject"), Subtype: n("Form"), BBox: [0, 0, W, H], Group: { S: n("Transparency"), CS: n("DeviceRGB") } },
+    "q 100 0 0 100 450 400 cm /ImF Do Q",
+  );
+  const xobjects = w.add({ ImA: im.formNoResources, ImB: im.formNoXObject, ImC: im.appearance, ImD: im.type3, ImF: im.softMask, ImE: im.sharedPage2, FmA: formA, FmB: formB });
+  const stamp = w.add({ Type: n("Annot"), Subtype: n("Stamp"), Rect: [450, 100, 550, 200], AP: { N: ap }, F: 4 });
+  const page2 = [
+    "q 1 0 0 1 50 400 cm /FmA Do Q",
+    "q 1 0 0 1 200 400 cm /FmB Do Q",
+    "BT /T3 100 Tf 320 400 Td (A) Tj ET",
+    "q /GS1 gs 0 0 1 rg 450 400 100 100 re f Q",
+    "q 100 0 0 100 50 200 cm /ImE Do Q",
+  ].join("\n");
+  return document(
+    "",
+    [
+      { content: lineOp, resources: { Font: { F1: helv }, XObject: xobjects } as unknown as PdfDict },
+      {
+        content: page2,
+        resources: { Font: { T3: t3 }, XObject: xobjects, ExtGState: { GS1: { SMask: { S: n("Luminosity"), G: group } } } } as unknown as PdfDict,
+        extra: () => ({ Annots: [stamp] }),
+      },
+    ],
+    null,
+    undefined,
+    w,
+  );
+}
+
+async function colourAt(bytes: ArrayBuffer, page: number, x: number, y: number): Promise<number[]> {
+  const img = await pdfjsRender(new Uint8Array(bytes), page, SCALE, true);
+  const o = (Math.round((H - y) * SCALE) * img.width + Math.round(x * SCALE)) * 4;
+  return [img.data[o] ?? -1, img.data[o + 1] ?? -1, img.data[o + 2] ?? -1];
+}
+
+describe("pruning keeps every XObject that is still drawn", () => {
+  for (const run of ["redaction", "erase"] as const) {
+    it(`${run} on page 1 keeps page 2's images drawn through forms, an appearance, a Type 3 glyph, a soft mask and a shared dictionary`, async () => {
+      const input = drawnThroughInheritors();
+      const needles = Object.entries(KEEP).map(([k, rgb]) => needle(k, solid(rgb)));
+      expect(residue(input, needles), "positive control").toEqual(needles.map((x) => x.label));
+      const out = run === "redaction" ? await redact(input, 0, [LINE_RECT]) : await erase(input, 0, [LINE_RECT]);
+      expect(residue(out, needles)).toEqual(needles.map((x) => x.label));
+      // Page 2 renders as before where each image shows (forms, stamp, Type 3 glyph, direct draw).
+      for (const [x, y] of [
+        [100, 450],
+        [250, 450],
+        [500, 150],
+        [370, 450],
+        [100, 250],
+      ] as const) {
+        expect(await colourAt(out, 1, x, y), `page 2 at ${x},${y}`).toEqual(await colourAt(input, 1, x, y));
+      }
+      qpdfCheck(new Uint8Array(out));
+    });
+  }
 });

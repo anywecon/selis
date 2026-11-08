@@ -262,10 +262,13 @@ pub async fn pack_import<R: Runtime>(
             let _ = std::fs::remove_file(&local);
             match outcome? {
                 Ok(imported) => {
-                    let settings = match imported.settings {
-                        Some(map) => settings::foreign_settings(&library, map)?,
-                        None => None,
-                    };
+                    // The documents are in: a settings read error only drops the offer.
+                    let settings = imported.settings.and_then(|map| {
+                        settings::foreign_settings(&library, map).unwrap_or_else(|e| {
+                            eprintln!("selis: pack settings not read: {}", e.message);
+                            None
+                        })
+                    });
                     Ok(PackImportView::Imported {
                         document_ids: imported.document_ids,
                         duplicates: imported.duplicates,

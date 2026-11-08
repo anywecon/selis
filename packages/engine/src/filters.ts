@@ -22,6 +22,14 @@ export const NO_PREDICTOR: Predictor = { predictor: 1, columns: 1, colors: 1, bp
 /** Thrown inside a decoder for malformed data; `decodeFilters` turns it into null. */
 class BadData extends Error {}
 
+/**
+ * Most bytes one stream may decode to (all filters of a chain together): content, forms,
+ * attachments and XMP are far smaller; past this a crafted stream (a Flate or LZW bomb, a
+ * chain of them) would only exhaust the worker's memory. Over it, the stream is not decoded
+ * and callers fail closed.
+ */
+export const MAX_DECODED_BYTES = 128 * 1024 * 1024;
+
 const isWhite = (c: number): boolean => c === 0x20 || c === 0x0a || c === 0x0d || c === 0x09 || c === 0x0c || c === 0x00;
 
 /** ASCIIHexDecode: hex digit pairs, white space ignored, `>` ends; an odd last digit is followed by 0. */
@@ -51,7 +59,8 @@ export function asciiHexDecode(data: Uint8Array): Uint8Array {
 
 /** ASCII85Decode: base-85 groups of five (`z` for four zero bytes), white space ignored, `~>` ends. */
 export function ascii85Decode(data: Uint8Array): Uint8Array {
-  const out = new Uint8Array(Math.ceil((data.length * 4) / 5) + 4);
+  // At most 4 bytes per character (`z`): a typed array drops writes past its end silently.
+  const out = new Uint8Array(data.length * 4 + 4);
   let n = 0;
   const group: number[] = [];
   let i = 0;
@@ -101,7 +110,7 @@ function put85(out: Uint8Array, n: number, group: readonly number[], bytes: numb
 }
 
 /** RunLengthDecode: a length byte, then 1–128 literal bytes or one byte repeated 2–128 times; 128 ends. */
-export function runLengthDecode(data: Uint8Array): Uint8Array {
+export function runLengthDecode(data: Uint8Array, limit = MAX_DECODED_BYTES): Uint8Array {
   const chunks: Uint8Array[] = [];
   let size = 0;
   let i = 0;
@@ -119,12 +128,13 @@ export function runLengthDecode(data: Uint8Array): Uint8Array {
       chunks.push(new Uint8Array(257 - len).fill(data[i++] as number));
       size += 257 - len;
     }
+    if (size > limit) throw new BadData("decodes past the size limit");
   }
   return concat(chunks, size);
 }
 
 /** LZWDecode: 9–12-bit codes, 256 clears, 257 ends; `earlyChange` 1 (the default) or 0. */
-export function lzwDecode(data: Uint8Array, earlyChange: number): Uint8Array {
+export function lzwDecode(data: Uint8Array, earlyChange: number, limit = MAX_DECODED_BYTES): Uint8Array {
   if (earlyChange !== 0 && earlyChange !== 1) throw new BadData("bad /EarlyChange");
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -165,6 +175,7 @@ export function lzwDecode(data: Uint8Array, earlyChange: number): Uint8Array {
     } else throw new BadData("an LZW code not in the table");
     chunks.push(entry);
     size += entry.length;
+    if (size > limit) throw new BadData("decodes past the size limit");
     if (prev !== null && table.length < 4096) {
       const next = new Uint8Array(prev.length + 1);
       next.set(prev);
@@ -192,7 +203,9 @@ function concat(chunks: readonly Uint8Array[], size: number): Uint8Array {
 export function unpredictPng(data: Uint8Array, columns: number, colors: number, bpc: number): Uint8Array {
   const bpp = Math.max(1, Math.ceil((colors * bpc) / 8));
   const rowLen = Math.ceil((columns * colors * bpc) / 8);
-  const rows = Math.floor(data.length / (rowLen + 1));
+  // A partial last row would be decoded by PDFium but not here: refuse rather than guess.
+  if (data.length % (rowLen + 1) !== 0) throw new BadData("a partial predictor row");
+  const rows = data.length / (rowLen + 1);
   const out = new Uint8Array(rows * rowLen);
   let prev = new Uint8Array(rowLen);
   for (let r = 0; r < rows; r++) {
@@ -241,15 +254,23 @@ export function unpredictPng(data: Uint8Array, columns: number, colors: number, 
 function unpredictTiff(data: Uint8Array, columns: number, colors: number, bpc: number): Uint8Array {
   if (bpc !== 8) throw new BadData("TIFF predictor below 8 bits per component");
   const rowLen = columns * colors;
-  const out = data.slice(0, rowLen === 0 ? 0 : data.length - (data.length % rowLen));
+  if (data.length % rowLen !== 0) throw new BadData("a partial predictor row");
+  const out = data.slice();
   for (let r = 0; r + rowLen <= out.length; r += rowLen) {
     for (let i = colors; i < rowLen; i++) out[r + i] = ((out[r + i] as number) + (out[r + i - colors] as number)) & 0xff;
   }
   return out;
 }
 
+/** Predictor parameters PDF readers accept (PDF 32000-1 Table 8); anything else is refused. */
+function validPredictor(p: Predictor): boolean {
+  const int = (v: number, min: number, max: number) => Number.isInteger(v) && v >= min && v <= max;
+  return int(p.columns, 1, 1 << 20) && int(p.colors, 1, 32) && [1, 2, 4, 8, 16].includes(p.bpc);
+}
+
 function unpredict(data: Uint8Array, p: Predictor): Uint8Array {
   if (p.predictor === 1) return data;
+  if (!validPredictor(p)) throw new BadData("bad predictor parameters");
   if (p.predictor === 2) return unpredictTiff(data, p.columns, p.colors, p.bpc);
   if (p.predictor >= 10 && p.predictor <= 15) return unpredictPng(data, p.columns, p.colors, p.bpc);
   throw new BadData(`unknown predictor ${p.predictor}`);
@@ -259,24 +280,29 @@ export type Filter = { readonly name: string; readonly parms: Predictor };
 
 /**
  * Applies `filters` in order (the /Filter array). Null when a filter is not one of the
- * five above or the data is malformed. `inflate` is passed in (the platform's zlib).
+ * five above, the data is malformed, or it decodes past `limit` bytes. `inflate` is passed
+ * in (the platform's zlib) and gives null past its limit.
  */
 export async function decodeFilters(
   data: Uint8Array,
   filters: readonly Filter[],
-  inflate: (d: Uint8Array) => Promise<Uint8Array>,
+  inflate: (d: Uint8Array, limit: number) => Promise<Uint8Array | null>,
+  limit = MAX_DECODED_BYTES,
 ): Promise<Uint8Array | null> {
   let out = data;
   try {
     for (const f of filters) {
       switch (f.name) {
         case "FlateDecode":
-        case "Fl":
-          out = unpredict(await inflate(out), f.parms);
+        case "Fl": {
+          const inflated = await inflate(out, limit);
+          if (inflated === null) return null;
+          out = unpredict(inflated, f.parms);
           break;
+        }
         case "LZWDecode":
         case "LZW":
-          out = unpredict(lzwDecode(out, f.parms.earlyChange), f.parms);
+          out = unpredict(lzwDecode(out, f.parms.earlyChange, limit), f.parms);
           break;
         case "ASCII85Decode":
         case "A85":
@@ -288,11 +314,12 @@ export async function decodeFilters(
           break;
         case "RunLengthDecode":
         case "RL":
-          out = runLengthDecode(out);
+          out = runLengthDecode(out, limit);
           break;
         default:
           return null;
       }
+      if (out.length > limit) return null;
     }
   } catch (e) {
     if (e instanceof BadData) return null;

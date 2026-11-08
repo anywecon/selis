@@ -583,6 +583,17 @@ describe("L3: every non-image filter and chain is decoded and checked", () => {
     });
   }
 
+  it("ASCII85: an attachment whose redacted word follows a run of zero bytes (z groups)", async () => {
+    const w = new PdfWriter("residue-attachment-a85-zeros");
+    const helv = helvetica(w);
+    const plain = new Uint8Array([...new Uint8Array(4096), ...Buffer.from(SECRET_ATTACHMENT, "latin1")]);
+    const ef = w.add(new Stream({ Type: n("EmbeddedFile"), Filter: n("ASCII85Decode") }, encodeChain(["ASCII85Decode"], plain)));
+    const spec = w.add({ Type: n("Filespec"), F: Str.ascii("padded.bin"), EF: { F: ef } });
+    const input = document("", [{ content: lineOp, resources: { Font: { F1: helv } } }], null, () => ({ Names: { EmbeddedFiles: { Names: [Str.ascii("padded.bin"), spec] } } }), w);
+    const out = await redact(input, 0, [LINE_RECT]);
+    expectGone(input, out, [needle("secret attachment", "ATTMARK")]);
+  });
+
   it("control: XMP that names no redacted word is kept", async () => {
     // Unencoded: PDFium writes a metadata stream without its /Filter (the data stays encoded,
     // measured), so encoded XMP reaches the check unreadable and is dropped as such.

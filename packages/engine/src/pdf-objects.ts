@@ -277,9 +277,28 @@ export async function deflate(data: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-async function inflate(data: Uint8Array): Promise<Uint8Array> {
-  const stream = new Blob([data.slice().buffer]).stream().pipeThrough(new DecompressionStream("deflate"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+/** Inflated data, or null once it passes `limit` bytes (the rest is not decompressed). */
+async function inflate(data: Uint8Array, limit: number): Promise<Uint8Array | null> {
+  const reader = new Blob([data.slice().buffer]).stream().pipeThrough(new DecompressionStream("deflate")).getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > limit) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.length;
+  }
+  return out;
 }
 
 const num = (o: PdfObj | undefined, fallback = 0): number => (o?.t === "num" ? Number(o.v) : fallback);
@@ -290,6 +309,7 @@ function filtersOf(dict: PdfDict): Filter[] | null {
   const filter = dict.get("Filter");
   const names = filter === undefined ? [] : filter.t === "arr" ? filter.v.map(nameOf) : [nameOf(filter)];
   if (names.some((x) => x === null)) return null;
+  if (names.length === 0) return []; // a stray /DecodeParms without a filter changes nothing
   const parms = dict.get("DecodeParms") ?? dict.get("DP");
   const list = parms === undefined || parms.t === "null" ? [] : parms.t === "arr" ? parms.v : names.length === 1 ? [parms] : null;
   if (list === null) return null; // one parameter dictionary for several filters: ambiguous

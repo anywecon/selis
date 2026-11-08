@@ -6,11 +6,11 @@
  * filters still not decoded give null, so callers fail closed.
  */
 import { deflateSync } from "node:zlib";
-import { asciiHex, encodeChain, type FilterName, lzw } from "@selis/fixtures/encode";
+import { ascii85, asciiHex, encodeChain, type FilterName, lzw, runLength } from "@selis/fixtures/encode";
 import { qpdfRewrite } from "@selis/fixtures/oracle";
 import { n, PdfWriter, Stream } from "@selis/fixtures/pdf-writer";
 import { describe, expect, it } from "vitest";
-import { ascii85Decode, asciiHexDecode, lzwDecode, runLengthDecode } from "./filters";
+import { ascii85Decode, asciiHexDecode, decodeFilters, lzwDecode, NO_PREDICTOR, runLengthDecode } from "./filters";
 import { decodeStream, type PdfObj } from "./pdf-objects";
 
 const bytes = (s: string): Uint8Array => new Uint8Array(Buffer.from(s, "latin1"));
@@ -57,6 +57,13 @@ describe("known vectors", () => {
     expect(Buffer.from(ascii85Decode(bytes("<~9jqo^BlbD-~>"))).toString("latin1")).toBe("Man is d");
   });
 
+  it("ASCII85: many z groups, then text, decode to their full length", () => {
+    // Review finding: an output buffer sized for 5 characters per 4 bytes cut this short.
+    expect([...ascii85Decode(bytes("zzzzzzzzzz~>"))]).toEqual(new Array(40).fill(0));
+    const padded = new Uint8Array([...new Uint8Array(4096), ...bytes("Marigold")]);
+    expect(Buffer.from(ascii85Decode(ascii85(padded))).equals(Buffer.from(padded))).toBe(true);
+  });
+
   it("ASCIIHex: white space, either case, an odd final digit", () => {
     expect([...asciiHexDecode(bytes("4 1\n6a f>"))]).toEqual([0x41, 0x6a, 0xf0]);
   });
@@ -80,8 +87,8 @@ const CHAINS: readonly (readonly FilterName[])[] = [
 ];
 
 describe("each filter and chain decodes what the encoder wrote, as qpdf does", () => {
-  // Not a multiple of 4: the last base-85 group is short.
-  const data = varied(20_001);
+  // Not a multiple of 4: the last base-85 group is short; zero runs give `z` groups.
+  const data = new Uint8Array([...varied(10_001), ...new Uint8Array(4000), ...varied(6_000)]);
   for (const chain of CHAINS) {
     it(chain.join(" + "), async () => {
       const encoded = encodeChain(chain, data);
@@ -127,10 +134,45 @@ describe("what is still not decoded gives null (the caller fails closed)", () =>
     ["one /DecodeParms dictionary for two filters", stream({ Filter: ["ASCIIHexDecode", "FlateDecode"], DecodeParms: { Predictor: 12, Columns: 4 } }, asciiHex(new Uint8Array(deflateSync(bytes("x")))))],
     ["the TIFF predictor below 8 bits", stream({ Filter: "FlateDecode", DecodeParms: { Predictor: 2, Columns: 4, BitsPerComponent: 4 } }, new Uint8Array(deflateSync(bytes("abcd"))))],
     ["an unknown predictor", stream({ Filter: "FlateDecode", DecodeParms: { Predictor: 7 } }, new Uint8Array(deflateSync(bytes("abcd"))))],
+    ["a PNG predictor with a partial last row", stream({ Filter: "FlateDecode", DecodeParms: { Predictor: 12, Columns: 4 } }, new Uint8Array(deflateSync(Uint8Array.from([0, 1, 2, 3, 4, 0, 9]))))],
+    ["a TIFF predictor with a partial last row", stream({ Filter: "FlateDecode", DecodeParms: { Predictor: 2, Columns: 4 } }, new Uint8Array(deflateSync(bytes("abcdef"))))],
+    ["a predictor with no columns", stream({ Filter: "FlateDecode", DecodeParms: { Predictor: 12, Columns: 0 } }, new Uint8Array(deflateSync(bytes("BT (secret) Tj ET"))))],
+    ["a predictor with negative columns", stream({ Filter: "FlateDecode", DecodeParms: { Predictor: 12, Columns: -4 } }, new Uint8Array(deflateSync(bytes("abcd"))))],
   ];
   for (const [what, s] of cases) {
     it(what, async () => {
       expect(await decodeStream(s)).toBeNull();
     });
   }
+});
+
+describe("decoding stops at the size limit (a crafted stream must not exhaust memory)", () => {
+  const inflate = async (d: Uint8Array, limit: number) => {
+    const out = new Uint8Array((await import("node:zlib")).inflateSync(d));
+    return out.length > limit ? null : out;
+  };
+  const zeros = new Uint8Array(1 << 20);
+  const flate = (name: string) => ({ name, parms: NO_PREDICTOR });
+
+  it("Flate inside Flate", async () => {
+    const bomb = new Uint8Array(deflateSync(deflateSync(zeros)));
+    expect(await decodeFilters(bomb, [flate("FlateDecode"), flate("FlateDecode")], inflate, 1 << 20)).not.toBeNull();
+    expect(await decodeFilters(bomb, [flate("FlateDecode"), flate("FlateDecode")], inflate, (1 << 20) - 1)).toBeNull();
+  });
+
+  it("LZW and RunLength", async () => {
+    expect(await decodeFilters(lzw(zeros), [flate("LZWDecode")], inflate, 1000)).toBeNull();
+    expect(await decodeFilters(runLength(zeros), [flate("RunLengthDecode")], inflate, 1000)).toBeNull();
+    expect((await decodeFilters(runLength(zeros), [flate("RunLengthDecode")], inflate))?.length).toBe(zeros.length);
+  });
+
+  it("the engine's own inflate stops too", async () => {
+    // 128 MiB + 1 of zeros, deflated: over MAX_DECODED_BYTES, refused without keeping it all.
+    const big = new Uint8Array(deflateSync(new Uint8Array(128 * 1024 * 1024 + 1)));
+    expect(await decodeStream(stream({ Filter: "FlateDecode" }, big))).toBeNull();
+  });
+
+  it("a stray /DecodeParms without a filter is ignored", async () => {
+    expect(Buffer.from((await decodeStream(stream({ DecodeParms: { Predictor: 12, Columns: 4 } }, bytes("plain")))) ?? []).toString("latin1")).toBe("plain");
+  });
 });

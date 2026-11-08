@@ -188,12 +188,17 @@ fn open(path: &Path, password: Option<&Password>) -> Result<QPdf> {
 }
 
 /// The largest stream's declared length (its `/Length`), objects of generation 0.
-fn largest_stream(doc: &QPdf) -> u64 {
-    let count = doc
+///
+/// The ids walked are bounded by what qpdf can have parsed, not by the trailer's `/Size` alone
+/// (the file declares it, up to `u32::MAX`): qpdf ignores every object id above a third of the
+/// file size (`xref_table_max_id`, QPDF_objects.cc), so no id beyond that can name an object.
+fn largest_stream(doc: &QPdf, input_bytes: u64) -> u64 {
+    let declared = doc
         .get_trailer()
         .and_then(|t| t.get("/Size"))
         .filter(|s| s.get_type() == QPdfObjectType::Integer)
         .map_or(0, |s| QPdfScalar::from(s).as_u64());
+    let count = declared.min(input_bytes / 3 + 1);
     let mut largest = 0;
     for id in 1..u32::try_from(count).unwrap_or(u32::MAX) {
         let Some(object) = doc.get_object_by_id(id, 0) else {
@@ -273,7 +278,7 @@ fn run_inner(
     let open = |path: &Path, password: Option<&Password>| -> Result<QPdf> {
         let doc = open(path, password)?;
         if path == input {
-            let largest = largest_stream(&doc);
+            let largest = largest_stream(&doc, input_bytes);
             if largest > max_stream_bytes {
                 return Err(Error::TooLarge(largest));
             }

@@ -486,3 +486,40 @@ fn a_compressed_file_with_an_outline_linearizes_without_hint_table_errors() {
     assert!(report.contains("File is linearized"), "{report}");
     assert!(!report.contains("WARNING"), "{report}");
 }
+
+/// Security audit run-1, lead 8: the stream-size pre-check walked object ids up to the trailer's
+/// /Size, which the file declares (up to u32::MAX ids, minutes to hours on a phone). It is bounded
+/// by what qpdf can have parsed (ids above a third of the file size are ignored by qpdf), so a
+/// tool run on such a file starts at once and still sees the large stream.
+#[test]
+fn a_huge_declared_trailer_size_does_not_stall_the_stream_check() {
+    let _serial = serial();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let input = make_pdf(dir.path(), "in.pdf", 1);
+    let bytes = std::fs::read(&input).expect("read");
+    let find = |needle: &[u8], from: usize| {
+        bytes[from..]
+            .windows(needle.len())
+            .rposition(|w| w == needle)
+            .map(|i| from + i)
+    };
+    let at = find(b"/Size ", 0).expect("trailer /Size");
+    let end = find(b" /Root", at).expect("trailer /Root");
+    let mut patched = bytes[..at].to_vec();
+    patched.extend_from_slice(b"/Size 4294967295");
+    patched.extend_from_slice(&bytes[end..]);
+    std::fs::write(&input, patched).expect("write");
+    let out = dir.path().join("out.pdf");
+    let started = std::time::Instant::now();
+    let refused = selis_pdfops::run_with_limit(&input, &out, &Operation::Compress, 32 * 1024);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "took {:?}",
+        started.elapsed()
+    );
+    // The 64 KB filler is still found.
+    assert!(
+        matches!(refused, Err(Error::TooLarge(n)) if n > 32 * 1024),
+        "{refused:?}"
+    );
+}

@@ -2,14 +2,15 @@
 //! store (`take_result` can recover it if the reply is lost; see
 //! docs/adr/0005-ipc-reliability.md).
 
+use std::collections::VecDeque;
 use std::io::Read;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tauri::{AppHandle, Runtime, State};
+use tauri::{AppHandle, Manager, Runtime, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tauri_plugin_fs::{FsExt, OpenOptions};
 
@@ -21,6 +22,43 @@ use crate::requests::RequestResults;
 pub enum PickOutcome {
     Picked { source: String },
     Cancelled,
+}
+
+/// How many granted sources are remembered (the oldest go first).
+const MAX_GRANTED: usize = 256;
+
+/// The sources Rust handed to the UI: a pick the user made, or a document another app sent
+/// ("Open with"). `stage_source` copies only these, never a path or URI the UI made up
+/// (security audit run-1, lead 7).
+#[derive(Default)]
+pub struct GrantedSources(Mutex<VecDeque<String>>);
+
+impl GrantedSources {
+    pub fn grant(&self, source: &str) {
+        let mut list = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        if list.iter().any(|s| s == source) {
+            return;
+        }
+        if list.len() >= MAX_GRANTED {
+            list.pop_front();
+        }
+        list.push_back(source.to_owned());
+    }
+
+    pub fn contains(&self, source: &str) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .any(|s| s == source)
+    }
+}
+
+/// Records `source` as handed to the UI (see [`GrantedSources`]).
+pub(crate) fn grant<R: Runtime>(app: &AppHandle<R>, source: &str) {
+    if let Some(granted) = app.try_state::<Arc<GrantedSources>>() {
+        granted.grant(source);
+    }
 }
 
 pub(crate) fn to_source(path: FilePath) -> String {
@@ -83,9 +121,11 @@ pub async fn pick_document<R: Runtime>(
                     .add_filter("Documents", CONVERTIBLE)
                     .blocking_pick_file()
                 {
-                    Some(path) => PickOutcome::Picked {
-                        source: to_source(path),
-                    },
+                    Some(path) => {
+                        let source = to_source(path);
+                        grant(&app, &source);
+                        PickOutcome::Picked { source }
+                    }
                     None => PickOutcome::Cancelled,
                 }
             })
@@ -178,7 +218,22 @@ pub async fn pick_image<R: Runtime>(
 
 #[cfg(test)]
 mod tests {
-    use super::image_mime;
+    use super::{GrantedSources, MAX_GRANTED, image_mime};
+
+    /// Security audit run-1, lead 7: only sources handed out are staged.
+    #[test]
+    fn only_granted_sources_are_known_and_the_oldest_go_first() {
+        let granted = GrantedSources::default();
+        assert!(!granted.contains("/data/data/com.anywecon.selis/selis.db"));
+        granted.grant("content://picked/1");
+        granted.grant("content://picked/1");
+        assert!(granted.contains("content://picked/1"));
+        for i in 0..MAX_GRANTED {
+            granted.grant(&format!("content://picked/{}", i + 2));
+        }
+        assert!(!granted.contains("content://picked/1"));
+        assert!(granted.contains(&format!("content://picked/{}", MAX_GRANTED + 1)));
+    }
 
     #[test]
     fn recognises_png_jpeg_webp_only() {

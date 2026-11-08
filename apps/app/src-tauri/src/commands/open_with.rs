@@ -172,7 +172,11 @@ pub async fn pending_opens<R: Runtime>(
         let kind = super::pack::pack_kind(app.clone(), item.source.clone()).await;
         queue.mark_sniffed(&item.id, matches!(kind, Ok(Some(_))));
     }
-    Ok(queue.list())
+    let items = queue.list();
+    for item in &items {
+        super::picker::grant(&app, &item.source);
+    }
+    Ok(items)
 }
 
 /// Called once a pending document has been imported (or failed for good).

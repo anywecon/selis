@@ -251,12 +251,7 @@ impl Library {
     }
 
     fn upload_path(&self, upload_id: &str) -> Result<PathBuf> {
-        let valid = !upload_id.is_empty()
-            && upload_id.len() <= MAX_UPLOAD_ID_LEN
-            && upload_id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'-');
-        if !valid {
+        if !plain_id(upload_id) {
             return Err(Error::InvalidArgument(
                 "upload id must be 1..=64 of [A-Za-z0-9-]",
             ));
@@ -267,9 +262,15 @@ impl Library {
             .join(format!("{upload_id}.part")))
     }
 
-    pub(crate) fn working_path(&self, document_id: &str) -> PathBuf {
-        // Document ids are UUIDs generated here; `get_document` checks them first.
-        self.root.join(WORK_DIR).join(format!("{document_id}.pdf"))
+    /// The working copy's path. The id comes from the UI: it must be a plain id (UUIDs are made
+    /// here), so it names a file in `work/` and nowhere else (no `..`, no absolute path).
+    pub(crate) fn working_path(&self, document_id: &str) -> Result<PathBuf> {
+        if !plain_id(document_id) {
+            return Err(Error::InvalidArgument(
+                "document id must be 1..=64 of [A-Za-z0-9-]",
+            ));
+        }
+        Ok(self.root.join(WORK_DIR).join(format!("{document_id}.pdf")))
     }
 
     /// Writes `bytes` at `offset` of an upload and returns the upload's length.
@@ -361,7 +362,7 @@ impl Library {
         if !starts_like_pdf(&upload)? {
             return Err(Error::NotPdf);
         }
-        let dest = self.working_path(document_id);
+        let dest = self.working_path(document_id)?;
         rename_durable(&upload, &dest)?;
         let copy = WorkingCopy {
             document_id: document_id.to_owned(),
@@ -401,7 +402,7 @@ impl Library {
             )
             .optional()?;
         let Some(copy) = row else { return Ok(None) };
-        let on_disk = std::fs::metadata(self.working_path(document_id))
+        let on_disk = std::fs::metadata(self.working_path(document_id)?)
             .map(|m| m.len() == copy.size_bytes)
             .unwrap_or(false);
         if on_disk {
@@ -414,11 +415,11 @@ impl Library {
 
     /// Throws away unsaved edits. Idempotent.
     pub fn discard_working_copy(&self, document_id: &str) -> Result<()> {
+        let path = self.working_path(document_id)?;
         self.conn().execute(
             "DELETE FROM working_copies WHERE document_id = ?1",
             [document_id],
         )?;
-        let path = self.working_path(document_id);
         match std::fs::remove_file(&path) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -456,7 +457,7 @@ impl Library {
         let copy = self
             .working_copy(document_id)?
             .ok_or_else(|| Error::NotFound(format!("working copy of {document_id}")))?;
-        let working = self.working_path(document_id);
+        let working = self.working_path(document_id)?;
         let file = File::open(&working).map_err(|e| Error::io(&working, e))?;
         let hash = Blake3Hash::of_reader(file)
             .map_err(|e| Error::io(&working, e))?
@@ -552,9 +553,53 @@ fn starts_like_pdf(path: &std::path::Path) -> Result<bool> {
     Ok(looks_like_pdf(&head))
 }
 
+/// 1..=64 of `[A-Za-z0-9-]`: an id that can only name a file directly in its folder.
+fn plain_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= MAX_UPLOAD_ID_LEN
+        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Security audit run-1, lead 7: an id from the UI must not reach outside `work/`.
+    #[test]
+    fn discarding_refuses_an_id_that_is_a_path() -> Result<()> {
+        let (dir, lib) = lib()?;
+        let doc = lib.import_reader(pdf("original").as_slice(), "a")?.document;
+        let version = std::path::PathBuf::from(lib.document_file(&doc.id)?.path);
+        assert!(version.exists(), "{}", version.display());
+        let outside = dir.path().join("outside.pdf");
+        std::fs::write(&outside, pdf("outside")).map_err(|e| Error::io(&outside, e))?;
+        let stem = version
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .ok_or(Error::InvalidArgument("stem"))?;
+        let outside_stem = dir.path().join("outside");
+        let traversal = format!("../library/{stem}");
+        for bad in [
+            traversal.as_str(),
+            outside_stem
+                .to_str()
+                .ok_or(Error::InvalidArgument("path"))?,
+            "",
+            "a/b",
+            "a.b",
+        ] {
+            assert!(
+                matches!(
+                    lib.discard_working_copy(bad),
+                    Err(Error::InvalidArgument(_))
+                ),
+                "{bad}"
+            );
+        }
+        assert!(version.exists());
+        assert!(outside.exists());
+        Ok(())
+    }
 
     fn pdf(marker: &str) -> Vec<u8> {
         format!("%PDF-1.7\n% {marker}\n%%EOF\n").into_bytes()
@@ -687,7 +732,7 @@ break",
             lib.commit_working_copy(upload, &doc.id, &doc.blake3, bytes.len() as u64)?,
             copy
         );
-        let path = lib.working_path(&doc.id);
+        let path = lib.working_path(&doc.id)?;
         assert_eq!(
             std::fs::read(&path).map_err(|e| Error::io(&path, e))?,
             bytes
@@ -763,7 +808,7 @@ break",
         lib.discard_working_copy(&doc.id)?;
         lib.discard_working_copy(&doc.id)?;
         assert!(lib.working_copy(&doc.id)?.is_none());
-        assert!(!lib.working_path(&doc.id).exists());
+        assert!(!lib.working_path(&doc.id)?.exists());
         let path = lib.document_file(&doc.id)?.path;
         assert_eq!(
             std::fs::read(&path).map_err(|e| Error::io(&path, e))?,

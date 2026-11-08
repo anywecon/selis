@@ -105,6 +105,8 @@ pub async fn discard_working_copy(
 ) -> CommandResult<()> {
     let library = Arc::clone(&library);
     blocking("discard", move || {
+        // Only a document the library has (the id is checked again where it becomes a path).
+        library.get_document(&document_id)?;
         library.discard_working_copy(&document_id)
     })
     .await

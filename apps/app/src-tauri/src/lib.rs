@@ -139,6 +139,7 @@ pub fn run() {
             app.manage(Arc::new(commands::transfer::TransferState::default()));
             app.manage(Arc::new(requests::RequestResults::default()));
             app.manage(Arc::new(commands::open_with::OpenQueue::default()));
+            app.manage(Arc::new(commands::picker::GrantedSources::default()));
             Ok(())
         })
         .build(tauri::generate_context!());

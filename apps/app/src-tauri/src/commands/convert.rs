@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use selis_core::{ImportOutcome, Library};
 use tauri::plugin::TauriPlugin;
-use tauri::{AppHandle, Runtime, State};
+use tauri::{AppHandle, Manager, Runtime, State};
 use tauri_plugin_fs::{FsExt, OpenOptions};
 
 use super::{CommandError, CommandResult, ErrorCode};
@@ -36,9 +36,20 @@ pub async fn stage_source<R: Runtime>(
     source: String,
 ) -> CommandResult<String> {
     let library = Arc::clone(&library);
+    // Only a source a picker or "Open with" handed out: the stage is readable by the UI.
+    let source = source.trim().to_owned();
+    if !app
+        .try_state::<Arc<super::picker::GrantedSources>>()
+        .is_some_and(|g| g.contains(&source))
+    {
+        return Err(CommandError::new(
+            ErrorCode::InvalidArgument,
+            "not a picked or shared document",
+        ));
+    }
     results
         .run_once(&request_id, "stage_source", async move {
-            let path = super::library::parse_source(source.trim())?;
+            let path = super::library::parse_source(&source)?;
             tauri::async_runtime::spawn_blocking(move || {
                 let mut opts = OpenOptions::new();
                 opts.read(true);

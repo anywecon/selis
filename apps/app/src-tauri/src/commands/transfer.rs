@@ -367,6 +367,19 @@ async fn android_call<R: Runtime>(app: &AppHandle<R>, cmd: &str, args: serde_jso
     }
 }
 
+/// Where a receive keeps its partial data: `<store>/in/<id>`. The id must be a plain id (1..=64
+/// of `[A-Za-z0-9-]`; transfer ids are UUIDs made here), so the folder is always directly in
+/// `in/` and a recursive delete of it never reaches anything else.
+fn incoming_dir(store: &std::path::Path, id: &str) -> CommandResult<PathBuf> {
+    let plain = !id.is_empty()
+        && id.len() <= 64
+        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-');
+    if !plain {
+        return Err(err(ErrorCode::InvalidArgument, "not a transfer id"));
+    }
+    Ok(store.join("in").join(id))
+}
+
 fn store_dir<R: Runtime>(app: &AppHandle<R>) -> CommandResult<PathBuf> {
     let cache = app
         .path()
@@ -1057,7 +1070,7 @@ pub async fn transfer_resume<R: Runtime>(
             ..Default::default()
         },
     )?;
-    let dest = store_dir(&app)?.join("in").join(&id);
+    let dest = incoming_dir(&store_dir(&app)?, &id)?;
     let session = o.service.resume(info, dest.clone());
     lock(&state.receives).insert(id.clone(), ReceiveView::Connecting);
     let task = tauri::async_runtime::spawn(track_receive(
@@ -1143,13 +1156,26 @@ pub async fn transfer_cancel_receive<R: Runtime>(
     library: State<'_, Arc<Library>>,
     id: String,
 ) -> CommandResult<()> {
+    // The id comes from the UI: a plain id (it names a folder below) that this app knows.
+    let store = store_dir(&app).ok();
+    let dir = match &store {
+        Some(store) => Some(incoming_dir(store, &id)?),
+        None => None,
+    };
+    let row = library.transfer(&id)?.is_some();
+    let mut running = false;
     if let Some(o) = state.open.lock().await.as_mut() {
         if let Some(task) = o.trackers.remove(&id) {
             task.abort();
+            running = true;
         }
         if let Some(session) = o.sessions.remove(&id) {
             o.service.cancel_receive(&session);
+            running = true;
         }
+    }
+    if !row && !running && !lock(&state.receives).contains_key(&id) {
+        return Err(err(ErrorCode::NotFound, "no such transfer"));
     }
     lock(&state.receives).insert(
         id.clone(),
@@ -1157,7 +1183,7 @@ pub async fn transfer_cancel_receive<R: Runtime>(
             error: TransferErrorCode::Cancelled,
         },
     );
-    if library.transfer(&id)?.is_some() {
+    if row {
         library.transfer_update(
             &id,
             &TransferUpdate {
@@ -1166,8 +1192,8 @@ pub async fn transfer_cancel_receive<R: Runtime>(
             },
         )?;
     }
-    if let Ok(dir) = store_dir(&app) {
-        let _ = std::fs::remove_dir_all(dir.join("in").join(&id));
+    if let Some(dir) = dir {
+        let _ = std::fs::remove_dir_all(dir);
     }
     maybe_close(&app, &state, &library).await;
     Ok(())
@@ -1786,6 +1812,34 @@ pub async fn transfer_debug_force_relay(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Security audit run-1, lead 7: a cancelled receive deletes `in/<id>` recursively, so the
+    /// id must not be able to name anything else.
+    #[test]
+    fn a_receive_folder_never_leaves_the_transfer_store() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = dir.path().join("cache").join("transfer");
+        let victim = dir.path().join("victim");
+        std::fs::create_dir_all(&victim).expect("victim");
+        std::fs::write(victim.join("keep.txt"), b"keep").expect("file");
+        let absolute = victim.to_string_lossy().into_owned();
+        for bad in [
+            "../../../victim",
+            "..",
+            "",
+            "a/b",
+            r"a\b",
+            absolute.as_str(),
+        ] {
+            assert!(incoming_dir(&store, bad).is_err(), "{bad}");
+        }
+        let id = "0192f0c4-7d2e-7a10-8b3c-2f4e5a6b7c8d";
+        assert_eq!(
+            incoming_dir(&store, id).expect("id"),
+            store.join("in").join(id)
+        );
+        assert!(victim.join("keep.txt").exists());
+    }
 
     #[tokio::test]
     async fn nothing_is_open_until_the_transfer_screen_opens_it() {

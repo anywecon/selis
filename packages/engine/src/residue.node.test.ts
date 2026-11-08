@@ -4,19 +4,19 @@
  * unreferenced by the page. Every fixture is generated here (no user data) or is
  * the corpus `greek` fixture. The oracle is independent of the engine: qpdf
  * rewrites the result with every stream decoded (`--qdf --object-streams=disable`,
- * generalized filters: Flate, LZW, ASCII85, ASCIIHex, RunLength) and the bytes
+ * `--decode-level=specialized`: Flate, LZW, ASCII85, ASCIIHex and RunLength) and the bytes
  * of the content that went must not appear anywhere in it. Each test checks the
  * same needle in its input first (positive control), and that the page still
  * renders the box (pdf.js).
  */
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { deflateSync } from "node:zlib";
 import { PdfiumNative } from "@embedpdf/engines/pdfium";
 import type { PdfDocumentObject } from "@embedpdf/models";
 import { init, type WrappedPdfiumModule } from "@embedpdf/pdfium";
 import { FIXTURES } from "@selis/fixtures";
 import { pdfjsRender, qpdfCheck, qpdfRewrite } from "@selis/fixtures/oracle";
+import { encodeChain, type FilterName } from "@selis/fixtures/encode";
 import { n, type PdfDict, PdfWriter, type Ref, Str, Stream } from "@selis/fixtures/pdf-writer";
 import { beforeAll, describe, expect, it } from "vitest";
 import { EmbeddedText, toPdfAnnotation } from "./annotations";
@@ -59,7 +59,7 @@ const needle = (label: string, bytes: Uint8Array | string): Needle => ({
 /** The file with every stream decoded by qpdf, as latin1 text (content streams kept as written). */
 function decodedFile(bytes: ArrayBuffer | Uint8Array): string {
   const input = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  const out = qpdfRewrite(input, ["--qdf", "--object-streams=disable", "--normalize-content=n", "--decode-level=generalized"]);
+  const out = qpdfRewrite(input, ["--qdf", "--object-streams=disable", "--normalize-content=n", "--decode-level=specialized"]);
   return Buffer.from(out).toString("latin1");
 }
 
@@ -216,19 +216,38 @@ function inheritedResources(): ArrayBuffer {
   return document("", [{ content: `${lineOp}\n${IMAGE_DRAW}` }], { Font: { F1: helv }, XObject: { Im1: im } }, undefined, w);
 }
 
-/** L1 (c) / L3 control: a form XObject drawn once holding only a filled path. */
+/**
+ * A stream filter chain (decoded first to last), or a /Filter the engine does not decode
+ * (after /ASCIIHexDecode, so the residue oracle still finds the plain bytes as hex digits).
+ */
+type Encoding = readonly FilterName[] | { readonly undecodable: string };
+const label = (e: Encoding): string => ("undecodable" in e ? e.undecodable : e.join("-"));
+
+function encodedStream(dict: PdfDict, e: Encoding, plain: string): Stream {
+  const data = new Uint8Array(Buffer.from(plain, "latin1"));
+  if ("undecodable" in e) return new Stream({ ...dict, Filter: [n("ASCIIHexDecode"), n(e.undecodable)] }, new Uint8Array(Buffer.from(`${Buffer.from(data).toString("hex")}>`, "latin1")));
+  if (e.length === 0) return new Stream(dict, data);
+  return new Stream({ ...dict, Filter: e.map((x) => n(x)) }, encodeChain(e, data));
+}
+
+/** L1 (c) / L3: a form XObject drawn once holding only a filled path, in an encoding. */
 const FORM_PATH = "0 0 1 rg 0 0 200 100 re f";
 const FORM_AREA = viewer(110, 110, 290, 190);
-function pathForm(filter: "flate" | "hex+flate"): ArrayBuffer {
-  const w = new PdfWriter(`residue-form-${filter}`);
+function pathForm(e: Encoding = ["FlateDecode"]): ArrayBuffer {
+  const w = new PdfWriter(`residue-form-${label(e)}`);
   const helv = helvetica(w);
-  const content = new Uint8Array(Buffer.from(FORM_PATH, "latin1"));
   const dict = { Type: n("XObject"), Subtype: n("Form"), BBox: [0, 0, 200, 100] };
-  const form =
-    filter === "flate"
-      ? w.addStream(dict, content)
-      : w.add(new Stream({ ...dict, Filter: [n("ASCIIHexDecode"), n("FlateDecode")] }, new Uint8Array(Buffer.from(`${deflateSync(content).toString("hex")}>`, "latin1"))));
+  const form = w.add(encodedStream(dict, e, FORM_PATH));
   return document("", [{ content: `${lineOp}\nq 1 0 0 1 100 100 cm /Fm0 Do Q`, resources: { Font: { F1: helv }, XObject: { Fm0: form } } }], null, undefined, w);
+}
+
+/** L3: the redacted line drawn by a form XObject (its only text), in an encoding. */
+function textForm(e: Encoding): ArrayBuffer {
+  const w = new PdfWriter(`residue-text-form-${label(e)}`);
+  const helv = helvetica(w);
+  const dict = { Type: n("XObject"), Subtype: n("Form"), BBox: [0, -10, 400, 30], Resources: { Font: { F1: helv } } };
+  const form = w.add(encodedStream(dict, e, `BT /F1 14 Tf 0 0 Td (${LINE}) Tj ET`));
+  return document("", [{ content: "q 1 0 0 1 60 700 cm /Fm0 Do Q", resources: { XObject: { Fm0: form } } }], null, undefined, w);
 }
 
 /** L1 (d): a form XObject wrapping an image (a scanned page as a form), drawn once. */
@@ -319,43 +338,26 @@ function noteWithLinks(): ArrayBuffer {
   return bytes;
 }
 
-/** ASCII85 of `data` (with the ~> end marker). */
-function ascii85(data: Uint8Array): string {
-  let out = "";
-  for (let i = 0; i < data.length; i += 4) {
-    let v = (((data[i] ?? 0) << 24) | ((data[i + 1] ?? 0) << 16) | ((data[i + 2] ?? 0) << 8) | (data[i + 3] ?? 0)) >>> 0;
-    const count = Math.min(4, data.length - i);
-    if (v === 0 && count === 4) {
-      out += "z";
-      continue;
-    }
-    const digits: string[] = [];
-    for (let k = 0; k < 5; k++) {
-      digits.unshift(String.fromCharCode(33 + (v % 85)));
-      v = Math.floor(v / 85);
-    }
-    out += digits.slice(0, count + 1).join("");
-  }
-  return `${out}~>`;
+/** L3: an attachment naming the line's words and one that does not, in an encoding. */
+const SECRET_ATTACHMENT = "Budget of project Marigold, ATTMARK.";
+const CLEAN_ATTACHMENT = "Minutes of the picnic, KEEPMARK.";
+function encodedAttachments(e: Encoding): ArrayBuffer {
+  const w = new PdfWriter(`residue-attachment-${label(e)}`);
+  const helv = helvetica(w);
+  const spec = (name: string, text: string) => {
+    const ef = w.add(encodedStream({ Type: n("EmbeddedFile") }, e, text));
+    return w.add({ Type: n("Filespec"), F: Str.ascii(name), EF: { F: ef } });
+  };
+  const names = [Str.ascii("budget.txt"), spec("budget.txt", SECRET_ATTACHMENT), Str.ascii("picnic.txt"), spec("picnic.txt", CLEAN_ATTACHMENT)];
+  return document("", [{ content: lineOp, resources: { Font: { F1: helv } } }], null, () => ({ Names: { EmbeddedFiles: { Names: names } } }), w);
 }
 
-/** L3 (b): an attachment encoded [/ASCII85Decode /FlateDecode] naming the line's words. */
-const ENCODED_ATTACHMENT = "Budget of project Marigold, A85MARK.";
-function encodedAttachment(): ArrayBuffer {
-  const w = new PdfWriter("residue-a85");
+/** L3: XMP in an encoding, naming the line's words (`secret`) or not. */
+const xmp = (title: string) => `<?xpacket begin=""?><x:xmpmeta xmlns:x="adobe:ns:meta/"><dc:title>${title}</dc:title></x:xmpmeta><?xpacket end="w"?>`;
+function encodedXmp(e: Encoding, secret: boolean): ArrayBuffer {
+  const w = new PdfWriter(`residue-xmp-${label(e)}-${secret}`);
   const helv = helvetica(w);
-  const data = new Uint8Array(Buffer.from(ascii85(new Uint8Array(deflateSync(Buffer.from(ENCODED_ATTACHMENT, "latin1")))), "latin1"));
-  const ef = w.add(new Stream({ Type: n("EmbeddedFile"), Filter: [n("ASCII85Decode"), n("FlateDecode")] }, data));
-  const spec = w.add({ Type: n("Filespec"), F: Str.ascii("notes.txt"), EF: { F: ef } });
-  return document("", [{ content: lineOp, resources: { Font: { F1: helv } } }], null, () => ({ Names: { EmbeddedFiles: { Names: [Str.ascii("notes.txt"), spec] } } }), w);
-}
-
-/** L3 (b): XMP under /ASCIIHexDecode naming the line's words. */
-const XMP = '<?xpacket begin=""?><x:xmpmeta xmlns:x="adobe:ns:meta/"><dc:title>Marigold XMPMARK</dc:title></x:xmpmeta><?xpacket end="w"?>';
-function encodedXmp(): ArrayBuffer {
-  const w = new PdfWriter("residue-xmp");
-  const helv = helvetica(w);
-  const meta = w.add(new Stream({ Type: n("Metadata"), Subtype: n("XML"), Filter: n("ASCIIHexDecode") }, new Uint8Array(Buffer.from(`${Buffer.from(XMP, "latin1").toString("hex")}>`, "latin1"))));
+  const meta = w.add(encodedStream({ Type: n("Metadata"), Subtype: n("XML") }, e, xmp(secret ? "Marigold XMPMARK" : "Picnic XMPKEEP")));
   return document("", [{ content: lineOp, resources: { Font: { F1: helv } } }], null, () => ({ Metadata: meta }), w);
 }
 
@@ -450,14 +452,14 @@ describe("L1: no original XObject survives a redaction or erase", () => {
   });
 
   it("erase, a form holding only a path, drawn once: the uncut form does not survive", async () => {
-    const input = pathForm("flate");
+    const input = pathForm();
     const out = await erase(input, 0, [FORM_AREA]);
     expectGone(input, out, [needle("uncut form path", FORM_PATH)]);
     await expectFill(out, 0, FORM_AREA);
   });
 
   it("redaction, a form holding only a path, drawn once", async () => {
-    const input = pathForm("flate");
+    const input = pathForm();
     const out = await redact(input, 0, [FORM_AREA, LINE_RECT]);
     expectGone(input, out, [needle("uncut form path", FORM_PATH), needle("line", "Marigold")]);
     await expectBlackBox(out, 0, FORM_AREA);
@@ -534,35 +536,94 @@ describe("L2: thumbnails, private data, alternates, associated files and removed
 });
 
 // ---------------------------------------------------------------------------
-// L3 — streams the engine cannot decode are not treated as clean
+// L3 — encoded streams are decoded and checked; what cannot be decoded fails closed
 // ---------------------------------------------------------------------------
 
-describe("L3: undecodable streams fail closed", () => {
-  it("control: a Flate form under the area is cut", async () => {
-    const input = pathForm("flate");
-    const out = await erase(input, 0, [FORM_AREA]);
-    expect(residue(out, [needle("uncut form path", FORM_PATH)])).toEqual([]);
-  });
+const ENCODINGS: readonly (readonly FilterName[])[] = [
+  ["FlateDecode"],
+  ["LZWDecode"],
+  ["ASCII85Decode"],
+  ["ASCIIHexDecode"],
+  ["RunLengthDecode"],
+  ["ASCII85Decode", "FlateDecode"],
+  ["ASCIIHexDecode", "FlateDecode"],
+  ["ASCIIHexDecode", "LZWDecode"],
+  ["ASCII85Decode", "RunLengthDecode"],
+];
 
-  it("erase refuses a form under the area in an encoding it cannot rewrite", async () => {
-    const input = pathForm("hex+flate");
+describe("L3: every non-image filter and chain is decoded and checked", () => {
+  for (const e of ENCODINGS) {
+    describe(e.join(" + "), () => {
+      it("erase cuts a form under the area", async () => {
+        const input = pathForm(e);
+        const out = await erase(input, 0, [FORM_AREA]);
+        expectGone(input, out, [needle("uncut form path", FORM_PATH)]);
+        await expectFill(out, 0, FORM_AREA);
+      });
+
+      it("redaction removes the line drawn by a form", async () => {
+        const input = textForm(e);
+        const out = await redact(input, 0, [LINE_RECT]);
+        expectGone(input, out, [needle("line", "Marigold Tangerine")]);
+        await expectBlackBox(out, 0, LINE_RECT);
+      });
+
+      it("redaction drops the attachment that names a redacted word and keeps the other", async () => {
+        const input = encodedAttachments(e);
+        const out = await redact(input, 0, [LINE_RECT]);
+        expectGone(input, out, [needle("secret attachment", "ATTMARK"), needle("line", "Marigold")]);
+        expect(residue(out, [needle("clean attachment", "KEEPMARK")])).toEqual(["clean attachment"]);
+      });
+
+      it("redaction drops XMP that names a redacted word", async () => {
+        const input = encodedXmp(e, true);
+        const out = await redact(input, 0, [LINE_RECT]);
+        expectGone(input, out, [needle("XMP", "XMPMARK")]);
+      });
+    });
+  }
+
+  it("control: XMP that names no redacted word is kept", async () => {
+    // Unencoded: PDFium writes a metadata stream without its /Filter (the data stays encoded,
+    // measured), so encoded XMP reaches the check unreadable and is dropped as such.
+    const input = encodedXmp([], false);
+    const out = await redact(input, 0, [LINE_RECT]);
+    expect(residue(out, [needle("XMP", "XMPKEEP")])).toEqual(["XMP"]);
+  });
+});
+
+describe("L3: what still cannot be decoded fails closed", () => {
+  const undecodable = { undecodable: "SelisUnknownDecode" } as const;
+
+  it("erase refuses a form under the area in an encoding it cannot read", async () => {
+    const input = pathForm(undecodable);
     expect(residue(input, [needle("form path", FORM_PATH)])).toEqual(["form path"]);
     await expect(erase(input, 0, [FORM_AREA])).rejects.toThrow(/cannot be rewritten/);
   });
 
   it("redaction refuses it too", async () => {
-    const input = pathForm("hex+flate");
+    const input = pathForm(undecodable);
     await expect(redact(input, 0, [FORM_AREA, LINE_RECT])).rejects.toThrow(/cannot be rewritten/);
   });
 
   it("redaction refuses an attachment it cannot read (it may name a redacted word)", async () => {
-    const input = encodedAttachment();
-    expect(residue(input, [needle("attachment", "A85MARK")])).toEqual(["attachment"]);
+    const input = encodedAttachments(undecodable);
+    expect(residue(input, [needle("attachment", "ATTMARK")])).toEqual(["attachment"]);
+    await expect(redact(input, 0, [LINE_RECT])).rejects.toThrow(/cannot be read/);
+  });
+
+  it("redaction refuses an attachment whose data is malformed for its filter", async () => {
+    const w = new PdfWriter("residue-attachment-bad-a85");
+    const helv = helvetica(w);
+    // "{" is outside base 85: nothing can say what this attachment holds.
+    const ef = w.add(new Stream({ Type: n("EmbeddedFile"), Filter: n("ASCII85Decode") }, new Uint8Array(Buffer.from("Marigold{ATTMARK~>", "latin1"))));
+    const spec = w.add({ Type: n("Filespec"), F: Str.ascii("x.txt"), EF: { F: ef } });
+    const input = document("", [{ content: lineOp, resources: { Font: { F1: helv } } }], null, () => ({ Names: { EmbeddedFiles: { Names: [Str.ascii("x.txt"), spec] } } }), w);
     await expect(redact(input, 0, [LINE_RECT])).rejects.toThrow(/cannot be read/);
   });
 
   it("redaction drops XMP metadata it cannot read", async () => {
-    const input = encodedXmp();
+    const input = encodedXmp(undecodable, true);
     const out = await redact(input, 0, [LINE_RECT]);
     expectGone(input, out, [needle("XMP", "XMPMARK")]);
   });

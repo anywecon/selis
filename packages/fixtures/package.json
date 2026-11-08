@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./oracle": "./src/oracle.ts",
     "./pdf-writer": "./src/pdf-writer.ts",
+    "./encode": "./src/encode.ts",
     "./transfer/*": "./transfer/*",
     "./scan-samples": "./src/scan-samples.ts",
     "./ssim": "./src/ssim.ts",

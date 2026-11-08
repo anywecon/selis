@@ -96,6 +96,7 @@ export function setStreamText(ctx: Ctx, stream: Stream, text: string): void {
   stream.data = latin1ToBytes(text);
   stream.dict.delete("Filter");
   stream.dict.delete("DecodeParms");
+  stream.dict.delete("DP");
   stream.dict.delete("DL");
   ctx.changed.add(stream);
 }

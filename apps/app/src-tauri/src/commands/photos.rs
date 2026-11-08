@@ -42,7 +42,13 @@ pub async fn pick_photos<R: Runtime>(
 ) -> CommandResult<PhotoPick> {
     results
         .run_once(&request_id, "pick_photos", async move {
-            platform::pick(&app, max.clamp(1, MAX_PHOTOS)).await
+            let pick = platform::pick(&app, max.clamp(1, MAX_PHOTOS)).await?;
+            if let PhotoPick::Picked { sources } = &pick {
+                for source in sources {
+                    super::picker::grant(&app, source);
+                }
+            }
+            Ok(pick)
         })
         .await
 }
@@ -61,7 +67,7 @@ pub async fn stage_photo<R: Runtime>(
     let library = Arc::clone(&library);
     results
         .run_once(&request_id, "stage_photo", async move {
-            let path = super::library::parse_source(source.trim())?;
+            let path = super::picker::granted_source(&app, &source)?;
             tauri::async_runtime::spawn_blocking(move || {
                 let mut opts = OpenOptions::new();
                 opts.read(true);

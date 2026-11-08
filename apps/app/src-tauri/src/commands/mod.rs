@@ -14,6 +14,8 @@ pub mod save;
 pub mod settings;
 pub mod share;
 pub mod signatures;
+#[cfg(test)]
+mod source_tests;
 pub mod tags;
 pub mod tools;
 pub mod transfer;

@@ -27,9 +27,10 @@ pub enum PickOutcome {
 /// How many granted sources are remembered (the oldest go first).
 const MAX_GRANTED: usize = 256;
 
-/// The sources Rust handed to the UI: a pick the user made, or a document another app sent
-/// ("Open with"). `stage_source` copies only these, never a path or URI the UI made up
-/// (security audit run-1, lead 7).
+/// The sources Rust handed to the UI: a pick the user made (PDF, document, photos, pack), or a
+/// document another app sent ("Open with"). Commands that open a source from the UI open only
+/// these (see [`granted_source`]), never a path or URI the UI made up (security audit run-1,
+/// lead 7).
 #[derive(Default)]
 pub struct GrantedSources(Mutex<VecDeque<String>>);
 
@@ -61,6 +62,65 @@ pub(crate) fn grant<R: Runtime>(app: &AppHandle<R>, source: &str) {
     }
 }
 
+/// The one way a command turns a source string from the UI into something to open: only a
+/// source a picker or "Open with" handed out (security audit run-1, lead 7), or, in debug and
+/// `measure` builds, a file the host pushed into the app's own `dev-inbox` cache folder (the
+/// measurement scripts). Anything else — a path or URI the UI made up — is refused before
+/// anything is opened.
+pub(crate) fn granted_source<R: Runtime>(
+    app: &AppHandle<R>,
+    source: &str,
+) -> CommandResult<FilePath> {
+    let source = source.trim();
+    let granted = app
+        .try_state::<Arc<GrantedSources>>()
+        .is_some_and(|g| g.contains(source));
+    if granted || dev_inbox(app).is_some_and(|inbox| in_folder(&inbox, source)) {
+        return parse_source(source);
+    }
+    Err(CommandError::new(
+        ErrorCode::InvalidArgument,
+        "not a picked or shared document",
+    ))
+}
+
+#[cfg(any(debug_assertions, feature = "measure"))]
+fn dev_inbox<R: Runtime>(app: &AppHandle<R>) -> Option<std::path::PathBuf> {
+    app.path().app_cache_dir().ok().map(|d| d.join(DEV_INBOX))
+}
+
+#[cfg(not(any(debug_assertions, feature = "measure")))]
+fn dev_inbox<R: Runtime>(_app: &AppHandle<R>) -> Option<std::path::PathBuf> {
+    None
+}
+
+/// The cache folder debug / `measure` builds also read sources from (see [`granted_source`]).
+#[cfg_attr(not(any(debug_assertions, feature = "measure")), allow(dead_code))]
+pub(crate) const DEV_INBOX: &str = "dev-inbox";
+
+/// Whether `source` is a plain path to a file directly inside `folder` (after resolving `..`
+/// and links, so nothing outside it can be named).
+fn in_folder(folder: &std::path::Path, source: &str) -> bool {
+    if source.contains("://") {
+        return false;
+    }
+    let (Ok(folder), Ok(file)) = (std::fs::canonicalize(folder), std::fs::canonicalize(source))
+    else {
+        return false;
+    };
+    file.is_file() && file.parent() == Some(folder.as_path())
+}
+
+fn parse_source(source: &str) -> CommandResult<FilePath> {
+    if source.contains("://") {
+        source
+            .parse::<FilePath>()
+            .map_err(|e| CommandError::new(ErrorCode::InvalidArgument, format!("bad URI: {e}")))
+    } else {
+        Ok(FilePath::Path(std::path::PathBuf::from(source)))
+    }
+}
+
 pub(crate) fn to_source(path: FilePath) -> String {
     match path {
         FilePath::Url(url) => url.to_string(),
@@ -86,9 +146,11 @@ pub async fn pick_pdf<R: Runtime>(
                     .add_filter("PDF", &["pdf"])
                     .blocking_pick_file()
                 {
-                    Some(path) => PickOutcome::Picked {
-                        source: to_source(path),
-                    },
+                    Some(path) => {
+                        let source = to_source(path);
+                        grant(&app, &source);
+                        PickOutcome::Picked { source }
+                    }
                     None => PickOutcome::Cancelled,
                 }
             })

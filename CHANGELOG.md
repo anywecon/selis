@@ -46,6 +46,7 @@ Affected: 1.0.0-rc.1 to 1.0.0-rc.5. Fixed in this version.
   asking (see Changed), and a sender can no longer find out which documents you already have.
 - The app checks every file name and document id it receives from its own screens before using
   it, so a file outside the library cannot be read or deleted by mistake.
+- Updated the built-in SQLite to 3.54 (RUSTSEC-2026-0459).
 
 ## [1.0.0-rc.5] - 2026-11-04
 

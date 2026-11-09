@@ -3,8 +3,8 @@
 - publish the rc.5 draft and upload `selis-1.0.0-rc.5.aab` to Play Internal testing;
 - get 12 opted-in testers into Play Closed testing, then move Closed testing from rc.1 to the current RC;
 - on the S23, check text sharpness at fit-width and 100 %, and Convert/Export on the rc.5 build.
-Next development: owner reviews HANDBACK.md and files docs/security/GHSA-draft-redaction.md; push `fix/redaction-and-transfer-hardening` as a PR, then tag v1.0.0-rc.6 (owner's go); then AI features (ADR 0036).
-**Last session:** 2026-11-09 — audit run-1 follow-up: lead 7 closed for all six source commands, LZW/ASCII85/ASCIIHex/RunLength decoders for redaction (fail closed otherwise), version 1.0.0-rc.6 with Security notes and a GHSA draft (not filed), branch not pushed. Tier 1 green; Tier 2 on the AVD (transfer ×3, pack, redact, erase, imports, pages, images, convert) all pass.
+Next development: owner reviews PR fix/rusqlite-0.41 (RUSTSEC-2026-0459) and, on the owner's go, chore/i18n-rc6 is rebased onto it; then tag v1.0.0-rc.6 (owner's go); then AI features (ADR 0036).
+**Last session:** 2026-11-10 — rusqlite 0.41.1 (bundled SQLite 3.54.1) fixes RUSTSEC-2026-0459; `cargo deny` green with no ignores; Tier 1 green except 3 mDNS transfer tests that fail on main too (host network); Tier 2 AVD import-scroll-back, delete-rename, library-search-favorites, transfer, pack all pass.
 
 
 ## v1.0.0-rc.5 (2026-11-04)

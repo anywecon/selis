@@ -3,8 +3,8 @@
 - publish the rc.5 draft and upload `selis-1.0.0-rc.5.aab` to Play Internal testing;
 - get 12 opted-in testers into Play Closed testing, then move Closed testing from rc.1 to the current RC;
 - on the S23, check text sharpness at fit-width and 100 %, and Convert/Export on the rc.5 build.
-Next development: owner reviews PR fix/rusqlite-0.41 (RUSTSEC-2026-0459) and, on the owner's go, chore/i18n-rc6 is rebased onto it; then tag v1.0.0-rc.6 (owner's go); then AI features (ADR 0036).
-**Last session:** 2026-11-10 — rusqlite 0.41.1 (bundled SQLite 3.54.1) fixes RUSTSEC-2026-0459; `cargo deny` green with no ignores; Tier 1 green except 3 mDNS transfer tests that fail on main too (host network); Tier 2 AVD import-scroll-back, delete-rename, library-search-favorites, transfer, pack all pass.
+Next development: merge chore/i18n-rc6 (rebased onto #114) once CI is green; then move tag v1.0.0-rc.6 to it (owner approved) and check the release draft; then AI features (ADR 0036).
+**Last session:** 2026-11-10 — rusqlite 0.41.1 (bundled SQLite 3.54.1) fixes RUSTSEC-2026-0459; `cargo deny` green with no ignores; Tier 1 green except 3 mDNS transfer tests that fail on main too (host network); Tier 2 AVD import-scroll-back, delete-rename, library-search-favorites, transfer, pack all pass. The rc.6 translation pass (27 Greek keys, `check-el --strict` passes, Greek screenshots checked on Pixel 7 + iPhone 15) was rebased onto it.
 
 
 ## v1.0.0-rc.5 (2026-11-04)

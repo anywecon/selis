@@ -168,7 +168,17 @@ export function createMockTransfer(deps: Deps) {
       ids.push(outcome.document.id);
       if (outcome.duplicate) duplicates += 1;
     }
-    r.result = { kind: "done", documentIds: ids, duplicates, signatures: 0, moved: false, peer: r.from, trusted: isTrusted(r.from) };
+    r.result = {
+      kind: "done",
+      documentIds: ids,
+      duplicates,
+      signatures: 0,
+      signaturesSkipped: 0,
+      moved: false,
+      settings: null,
+      peer: r.from,
+      trusted: isTrusted(r.from),
+    };
   };
 
   const receiveView = (r: Receive): ReceiveView => {
@@ -337,6 +347,11 @@ export function createMockTransfer(deps: Deps) {
         if (s) s.cancelled = true;
         return null;
       }
+      case "transfer_ticket_sender": {
+        const link = String(args.link).trim();
+        if (!link.startsWith("selis://transfer/selis")) deps.fail("invalidArgument", "invalidLink");
+        return { peer: MOCK_PEER, trustedName: null };
+      }
       case "transfer_receive":
         return deps.runOnce(cmd, String(args.requestId), () => settle(() => {
           requireOpen();
@@ -483,6 +498,7 @@ export const TRANSFER_COMMANDS = new Set([
   "transfer_decide",
   "transfer_cancel_send",
   "transfer_receive",
+  "transfer_ticket_sender",
   "transfer_receive_status",
   "transfer_cancel_receive",
   "transfer_resumable",

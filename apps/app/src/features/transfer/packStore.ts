@@ -4,7 +4,7 @@
  * file; encrypted packs ask for the passphrase (again after a wrong one).
  */
 import { create } from "zustand";
-import { ApiError, api, type PackKind, type PackProblem, type PackSummary } from "../../lib/api";
+import { ApiError, api, type ForeignSettings, type PackKind, type PackProblem, type PackSummary } from "../../lib/api";
 
 export const MIN_PASSPHRASE = 8;
 
@@ -13,7 +13,8 @@ export type PackImportState =
   | { phase: "checking" }
   | { phase: "passphrase"; source: string; name: string | null; wrong: boolean }
   | { phase: "importing"; source: string; name: string | null }
-  | { phase: "done"; documents: number; duplicates: number; signatures: number; settings: boolean }
+  /** `settings`: what the pack's settings would change, until the user applies or declines them. */
+  | { phase: "done"; documents: number; duplicates: number; signatures: number; settings: ForeignSettings | null }
   | { phase: "failed"; problem: PackProblem | "io" };
 
 export type PackExportState =
@@ -30,6 +31,8 @@ type PackState = {
   pickAndOpen: () => Promise<void>;
   submitPassphrase: (passphrase: string) => Promise<void>;
   resetImport: () => void;
+  /** The pack's settings were applied or declined (ForeignSettingsSheet): nothing left to ask. */
+  settingsHandled: () => void;
   exportPack: (documentIds: string[] | null, includeHistory: boolean, passphrase: string | null) => Promise<void>;
   resetExport: () => void;
   /** Documents arrived (the library listing refreshes). */
@@ -108,6 +111,11 @@ export const usePack = create<PackState>()((set, get) => ({
   },
 
   resetImport: () => set({ importState: { phase: "idle" } }),
+
+  settingsHandled: () => {
+    const state = get().importState;
+    if (state.phase === "done") set({ importState: { ...state, settings: null } });
+  },
 
   exportPack: async (documentIds, includeHistory, passphrase) => {
     if (get().exportState.phase === "working") return;

@@ -71,6 +71,7 @@
     "allow-transfer-receive",
     "allow-transfer-receive-status",
     "allow-transfer-cancel-receive",
+    "allow-transfer-ticket-sender",
     "allow-transfer-resumable",
     "allow-transfer-resume",
     "allow-transfer-pause",

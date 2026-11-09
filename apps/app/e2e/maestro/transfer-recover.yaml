@@ -13,6 +13,17 @@ name: Transfer recovers from a vanished sender and an expired code
     visible:
       id: "transfer-screen"
     timeout: 30000
+# A link only asks first, with the sender (security audit run-1, lead 5).
+- extendedWaitUntil:
+    visible:
+      id: "transfer-link-prompt"
+    timeout: 30000
+# The devtools hierarchy reports this button without its testid (measured on the AVD): its
+# label, below the sender line (the "Receive" tab is above it).
+- tapOn:
+    text: "Receive"
+    below:
+      id: "transfer-link-sender"
 - extendedWaitUntil:
     visible:
       id: "transfer-receive-paused"

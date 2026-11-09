@@ -234,6 +234,8 @@ async function pasteLink(cdp: Cdp, link: string): Promise<void> {
     return true;
   })()`);
   await click(cdp, "transfer-paste-submit");
+  // A link only asks first, with the sender (security audit run-1, lead 5).
+  await click(cdp, "transfer-link-accept");
 }
 
 function launch(serial: string): void {
@@ -588,12 +590,14 @@ function pullPack(serial: string, to: string): string {
 /** Copies a host file into the app's cache; returns the absolute path the app reads. */
 function pushPrivate(serial: string, from: string, name: string): string {
   // One argument: adb on Windows mangles a quoted shell snippet split over several.
-  execFileSync("adb", ["-s", serial, "exec-in", `run-as ${PKG} sh -c 'cat > cache/${name}'`], {
+  // cache/dev-inbox: the one app folder debug and `measure` builds accept as a source besides
+  // what a picker or "Open with" handed out (security audit run-1, lead 7).
+  execFileSync("adb", ["-s", serial, "exec-in", `run-as ${PKG} sh -c 'mkdir -p cache/dev-inbox && cat > cache/dev-inbox/${name}'`], {
     env,
     input: readFileSync(from),
     maxBuffer: 2 ** 31,
   });
-  return `/data/user/0/${PKG}/cache/${name}`;
+  return `/data/user/0/${PKG}/cache/dev-inbox/${name}`;
 }
 
 /** Fills the device from a pack made on this computer (`selispack make` of `--dir`), then decorates it. */
@@ -613,7 +617,7 @@ async function packSeed(o: Options, cdp: Cdp): Promise<Result> {
   const t0 = Date.now();
   const imported = await invoke<PackImportView>(cdp, "pack_import", { requestId: `seed-${t0}`, source, passphrase: null });
   const seconds = (Date.now() - t0) / 1000;
-  adb(o.serial, ["shell", "run-as", PKG, "rm", "-f", "cache/seed.selispack"]);
+  adb(o.serial, ["shell", "run-as", PKG, "rm", "-f", "cache/dev-inbox/seed.selispack"]);
   if (imported.status !== "imported") throw new Error(`seed pack refused: ${imported.problem}`);
   await decorate(cdp);
   const after = await snapshot(cdp);
@@ -689,7 +693,7 @@ async function packRoundTrip(o: Options, a: Cdp, b: Cdp): Promise<Record<string,
       tamperNoChange: same(afterSecond, afterTamper),
       leftovers,
     };
-    adb(o.serial2 ?? "", ["shell", "run-as", PKG, "rm", "-f", "cache/in.selispack", "cache/tampered.selispack"]);
+    adb(o.serial2 ?? "", ["shell", "run-as", PKG, "rm", "-f", "cache/dev-inbox/in.selispack", "cache/dev-inbox/tampered.selispack"]);
   }
   // A reconnect above replaced the caller's socket: close ours too, or node never exits.
   b.close();

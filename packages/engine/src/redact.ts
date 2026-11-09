@@ -40,6 +40,7 @@ import { type EmbeddedText, fromPdfAnnotation, TEXT_STAMP_PREFIX } from "./annot
 import type { PageRect } from "./geometry";
 import { type PageArea, rewritePages, userBoxes } from "./erase";
 import { renderTransparent } from "./pdfium-objects";
+import { UncheckedContentError } from "./pdf-objects";
 import { sanitizeRedacted } from "./sanitize";
 import { unsharePages } from "./unshare";
 
@@ -236,9 +237,12 @@ export async function applyRedactions(
   });
   if (applied === 0) throw new Error("no redaction marks to apply");
   let unshared: Uint8Array;
+  let originals: Uint8Array[];
   try {
-    unshared = await unsharePages(new Uint8Array(emptied), new Map([...areas].map(([k, a]) => [k, a.boxes])));
+    ({ bytes: unshared, originals } = await unsharePages(new Uint8Array(emptied), new Map([...areas].map(([k, a]) => [k, a.boxes]))));
   } catch (err) {
+    // Fail closed, and say why (the UI tells the user the content could not be checked).
+    if (err instanceof UncheckedContentError) throw err;
     throw new Error(`cannot redact: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
   }
   const stamps = new Set<string>();
@@ -251,7 +255,7 @@ export async function applyRedactions(
       text.forget(doc.id);
     }
   });
-  const rewritten = await rewritePages(new Uint8Array(redacted), areas, (pdf, index, scale) => renderTransparent(engine, pdf, index, scale));
+  const rewritten = await rewritePages(new Uint8Array(redacted), areas, (pdf, index, scale) => renderTransparent(engine, pdf, index, scale), originals);
   // The whiteouts' new text stamps hold the user's new words: kept as written.
   const { bytes, report } = await sanitizeRedacted(rewritten.bytes, terms, (nm) => stamps.has(nm));
   return {

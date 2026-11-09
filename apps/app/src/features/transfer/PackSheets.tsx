@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Sheet } from "../../components/Sheet";
 import { useToast } from "../../components/Toast";
 import { useNavigation } from "../../state/navigation";
+import { ForeignSettingsSheet } from "./ForeignSettingsSheet";
 import { Busy, Card } from "./parts";
 import { MIN_PASSPHRASE, usePack } from "./packStore";
 
@@ -235,9 +236,13 @@ export function PackResult() {
   const { t } = useTranslation();
   const importState = usePack((s) => s.importState);
   const resetImport = usePack((s) => s.resetImport);
+  const settingsHandled = usePack((s) => s.settingsHandled);
   const selectTab = useNavigation((s) => s.selectTab);
   return (
     <div className="flex flex-col gap-3" data-testid="pack-result">
+      {importState.phase === "done" && importState.settings ? (
+        <ForeignSettingsSheet settings={importState.settings} from="pack" onDone={settingsHandled} />
+      ) : null}
       {importState.phase === "checking" || importState.phase === "importing" ? (
         <Card testId="pack-importing">
           <Busy label={t("transfer.pack.importing")} testId="pack-importing-busy" />
@@ -253,9 +258,6 @@ export function PackResult() {
             <p className="text-center text-[13px] text-neutral-11">
               {t("transfer.receive.duplicates", { count: importState.duplicates })}
             </p>
-          ) : null}
-          {importState.settings ? (
-            <p className="text-center text-[13px] text-neutral-11">{t("transfer.move.movedBody")}</p>
           ) : null}
           <div className="flex w-full flex-col gap-2">
             <Button

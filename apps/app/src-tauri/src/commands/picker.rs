@@ -2,14 +2,15 @@
 //! store (`take_result` can recover it if the reply is lost; see
 //! docs/adr/0005-ipc-reliability.md).
 
+use std::collections::VecDeque;
 use std::io::Read;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use tauri::{AppHandle, Runtime, State};
+use tauri::{AppHandle, Manager, Runtime, State};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tauri_plugin_fs::{FsExt, OpenOptions};
 
@@ -21,6 +22,110 @@ use crate::requests::RequestResults;
 pub enum PickOutcome {
     Picked { source: String },
     Cancelled,
+}
+
+/// How many granted sources are remembered (the oldest go first).
+const MAX_GRANTED: usize = 256;
+
+/// The sources Rust handed to the UI: a pick the user made (PDF, document, photos, pack), or a
+/// document another app sent ("Open with"). Commands that open a source from the UI open only
+/// these (see [`granted_source`]), never a path or URI the UI made up (security audit run-1,
+/// lead 7).
+#[derive(Default)]
+pub struct GrantedSources(Mutex<VecDeque<String>>);
+
+impl GrantedSources {
+    pub fn grant(&self, source: &str) {
+        let mut list = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        if list.iter().any(|s| s == source) {
+            return;
+        }
+        if list.len() >= MAX_GRANTED {
+            list.pop_front();
+        }
+        list.push_back(source.to_owned());
+    }
+
+    pub fn contains(&self, source: &str) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .any(|s| s == source)
+    }
+}
+
+/// Records `source` as handed to the UI (see [`GrantedSources`]).
+pub(crate) fn grant<R: Runtime>(app: &AppHandle<R>, source: &str) {
+    if let Some(granted) = app.try_state::<Arc<GrantedSources>>() {
+        granted.grant(source);
+    }
+}
+
+/// The one way a command turns a source string from the UI into something to open: only a
+/// source a picker or "Open with" handed out (security audit run-1, lead 7), or, in debug and
+/// `measure` builds, a file the host pushed into the app's own `dev-inbox` cache folder (the
+/// measurement scripts). Anything else — a path or URI the UI made up — is refused before
+/// anything is opened.
+pub(crate) fn granted_source<R: Runtime>(
+    app: &AppHandle<R>,
+    source: &str,
+) -> CommandResult<FilePath> {
+    // As handed out, or as the UI trimmed it (a picked name may start or end with a space).
+    let granted = app.try_state::<Arc<GrantedSources>>().and_then(|g| {
+        [source, source.trim()]
+            .into_iter()
+            .find(|s| g.contains(s))
+            .map(str::to_owned)
+    });
+    if let Some(source) = granted {
+        return parse_source(&source);
+    }
+    let source = source.trim();
+    if dev_inbox(app).is_some_and(|inbox| in_folder(&inbox, source)) {
+        return parse_source(source);
+    }
+    Err(CommandError::new(
+        ErrorCode::InvalidArgument,
+        "not a picked or shared document",
+    ))
+}
+
+#[cfg(any(debug_assertions, feature = "measure"))]
+fn dev_inbox<R: Runtime>(app: &AppHandle<R>) -> Option<std::path::PathBuf> {
+    app.path().app_cache_dir().ok().map(|d| d.join(DEV_INBOX))
+}
+
+#[cfg(not(any(debug_assertions, feature = "measure")))]
+fn dev_inbox<R: Runtime>(_app: &AppHandle<R>) -> Option<std::path::PathBuf> {
+    None
+}
+
+/// The cache folder debug / `measure` builds also read sources from (see [`granted_source`]).
+#[cfg_attr(not(any(debug_assertions, feature = "measure")), allow(dead_code))]
+pub(crate) const DEV_INBOX: &str = "dev-inbox";
+
+/// Whether `source` is a plain path to a file directly inside `folder` (after resolving `..`
+/// and links, so nothing outside it can be named).
+fn in_folder(folder: &std::path::Path, source: &str) -> bool {
+    if source.contains("://") {
+        return false;
+    }
+    let (Ok(folder), Ok(file)) = (std::fs::canonicalize(folder), std::fs::canonicalize(source))
+    else {
+        return false;
+    };
+    file.is_file() && file.parent() == Some(folder.as_path())
+}
+
+fn parse_source(source: &str) -> CommandResult<FilePath> {
+    if source.contains("://") {
+        source
+            .parse::<FilePath>()
+            .map_err(|e| CommandError::new(ErrorCode::InvalidArgument, format!("bad URI: {e}")))
+    } else {
+        Ok(FilePath::Path(std::path::PathBuf::from(source)))
+    }
 }
 
 pub(crate) fn to_source(path: FilePath) -> String {
@@ -48,9 +153,11 @@ pub async fn pick_pdf<R: Runtime>(
                     .add_filter("PDF", &["pdf"])
                     .blocking_pick_file()
                 {
-                    Some(path) => PickOutcome::Picked {
-                        source: to_source(path),
-                    },
+                    Some(path) => {
+                        let source = to_source(path);
+                        grant(&app, &source);
+                        PickOutcome::Picked { source }
+                    }
                     None => PickOutcome::Cancelled,
                 }
             })
@@ -83,9 +190,11 @@ pub async fn pick_document<R: Runtime>(
                     .add_filter("Documents", CONVERTIBLE)
                     .blocking_pick_file()
                 {
-                    Some(path) => PickOutcome::Picked {
-                        source: to_source(path),
-                    },
+                    Some(path) => {
+                        let source = to_source(path);
+                        grant(&app, &source);
+                        PickOutcome::Picked { source }
+                    }
                     None => PickOutcome::Cancelled,
                 }
             })
@@ -178,7 +287,22 @@ pub async fn pick_image<R: Runtime>(
 
 #[cfg(test)]
 mod tests {
-    use super::image_mime;
+    use super::{GrantedSources, MAX_GRANTED, image_mime};
+
+    /// Security audit run-1, lead 7: only sources handed out are staged.
+    #[test]
+    fn only_granted_sources_are_known_and_the_oldest_go_first() {
+        let granted = GrantedSources::default();
+        assert!(!granted.contains("/data/data/com.anywecon.selis/selis.db"));
+        granted.grant("content://picked/1");
+        granted.grant("content://picked/1");
+        assert!(granted.contains("content://picked/1"));
+        for i in 0..MAX_GRANTED {
+            granted.grant(&format!("content://picked/{}", i + 2));
+        }
+        assert!(!granted.contains("content://picked/1"));
+        assert!(granted.contains(&format!("content://picked/{}", MAX_GRANTED + 1)));
+    }
 
     #[test]
     fn recognises_png_jpeg_webp_only() {

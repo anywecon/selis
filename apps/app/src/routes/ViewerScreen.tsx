@@ -1,4 +1,4 @@
-import { type AreaAnnotations, nextTurn, type QuarterTurns } from "@selis/engine";
+import { type AreaAnnotations, EngineError, nextTurn, type QuarterTurns } from "@selis/engine";
 import { Button, EmptyState, Skeleton } from "@selis/ui";
 import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
@@ -375,7 +375,7 @@ export function ViewerScreen({ docId, variant }: { docId: string; variant: Varia
       );
     } catch (err) {
       console.warn("selis: redaction failed", err);
-      showToast(t("redact.failed"), "error");
+      showToast(t(err instanceof EngineError && err.code === "unchecked" ? "redact.unchecked" : "redact.failed"), "error");
     } finally {
       setRedacting(false);
     }
@@ -408,7 +408,7 @@ export function ViewerScreen({ docId, variant }: { docId: string; variant: Varia
       showToast(versionNote(annotations) ? t("erase.appliedAnnotations", { ...annotations }) : t(done));
     } catch (err) {
       console.warn("selis: erase failed", err);
-      showToast(t("erase.failed"), "error");
+      showToast(t(err instanceof EngineError && err.code === "unchecked" ? "erase.unchecked" : "erase.failed"), "error");
     } finally {
       setErasing(false);
     }

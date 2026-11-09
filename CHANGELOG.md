@@ -8,6 +8,45 @@ short summaries of these sections.
 
 ## [Unreleased]
 
+## [1.0.0-rc.6] - 2026-11-08
+
+Sixth release candidate: redaction fixes, and transfers and packs ask before they change
+anything. Everyone who redacted documents with rc.1–rc.5 should redact them again with this
+version (see Security).
+
+### Changed
+
+- Receiving through a link or QR code first shows which device is sending and starts only after
+  "Receive". Settings that come with a library move or a .selispack file are listed and applied
+  only after "Apply"; if they would delete older versions of your documents, the app asks a
+  second time and says how many. Saved signatures now come along only from one of your saved
+  devices.
+
+### Fixed
+
+- Opening a damaged PDF that claims an enormous number of objects no longer keeps the app busy
+  for minutes before a compress, optimise or repair.
+
+### Security
+
+Affected: 1.0.0-rc.1 to 1.0.0-rc.5. Fixed in this version.
+
+- Redaction now removes hidden copies of what you redacted, not only what the page shows:
+  - images and drawings under the black box that were still stored in the file, for example
+    when the same picture was also used on another page;
+  - page thumbnails and private data that other apps had saved with the page;
+  - attachments and the document's description (metadata) that mention a redacted word,
+    including copies stored in less common encodings;
+  - notes that were removed but still reachable through their replies or pop-ups.
+  Erase page content got the same fixes.
+- Redaction and erase now refuse to save when they cannot prove that the result is clean (for
+  example a part of the file in an encoding the app cannot read), and say why. Nothing is
+  saved in that case; the earlier version stays as it was.
+- Transfers and .selispack files no longer change your settings or start a receive without
+  asking (see Changed), and a sender can no longer find out which documents you already have.
+- The app checks every file name and document id it receives from its own screens before using
+  it, so a file outside the library cannot be read or deleted by mistake.
+
 ## [1.0.0-rc.5] - 2026-11-04
 
 Fifth release candidate. Convert Word, Excel, CSV, text and Markdown to PDF; export PDF as Word,
@@ -154,7 +193,8 @@ desktop shell (P6).
 - No analytics, crash reporting, advertising or account; nothing is collected
   ([PRIVACY.md](docs/PRIVACY.md)).
 
-[Unreleased]: https://github.com/Fiouri/selis/compare/v1.0.0-rc.5...HEAD
+[Unreleased]: https://github.com/Fiouri/selis/compare/v1.0.0-rc.6...HEAD
+[1.0.0-rc.6]: https://github.com/Fiouri/selis/releases/tag/v1.0.0-rc.6
 [1.0.0-rc.5]: https://github.com/Fiouri/selis/releases/tag/v1.0.0-rc.5
 [1.0.0-rc.4]: https://github.com/Fiouri/selis/releases/tag/v1.0.0-rc.4
 [1.0.0-rc.3]: https://github.com/Fiouri/selis/releases/tag/v1.0.0-rc.3

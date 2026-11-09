@@ -42,6 +42,7 @@ import type { PageRect } from "./geometry";
 import { type Box, boxesMeet, clipFill, clipStroke, pathMeets, shrinkBoxes, type Subpath } from "./path-clip";
 import { flattenPage, type Rasterizer } from "./flatten";
 import { bytesToLatin1, decodeStream, type PdfDict, PdfDocumentObjects } from "./pdf-objects";
+import { detachRemovedAnnotations, pruneUnusedXObjects } from "./residue";
 import type { WrappedPdfiumModule } from "@embedpdf/pdfium";
 import { documentPointer, removePageObject, toUserSpace } from "./pdfium-objects";
 import type { EraseArea, PageObjectInfo } from "./types";
@@ -55,6 +56,7 @@ import {
   ownResources,
   setStreamText,
   type Stream,
+  UNDECODABLE_FORM,
   unsharePages,
   writeContents,
   type XObject,
@@ -132,7 +134,7 @@ async function cutContent(ctx: Ctx, text: string, resources: PdfDict, base: Matr
   let paths = edits.length;
   for (const form of forms) {
     const inner = await decodeStream(form.stream);
-    if (!inner) continue;
+    if (!inner) throw new ContentRewriteError(UNDECODABLE_FORM);
     const own = ctx.doc.dict(form.stream.dict.get("Resources")) ?? resources;
     const cut = await cutContent(ctx, bytesToLatin1(inner), own, form.matrix);
     if (cut.text !== null) setStreamText(ctx, form.stream, cut.text);
@@ -179,19 +181,26 @@ export const FILL_MARK = "%SelisFill";
 
 function rewriteError(err: unknown): unknown {
   if (err instanceof ContentSyntaxError) return new EraseError(`cannot read the page content: ${err.message}`);
-  if (err instanceof ContentRewriteError) return new EraseError(err.message);
+  // UncheckedContentError (ContentRewriteError included) is kept as it is: the UI says the content could not be checked.
   return err;
 }
 
+/** Page keys that hold another rendition of the page or private application data (a pre-redaction copy). */
+const PAGE_RENDITION_KEYS = ["Thumb", "PieceInfo"] as const;
+
 /**
  * Steps 3–4 on the bytes PDFium wrote: per page, flattens what cannot be cut
- * (redaction only), cuts the paths, paints each box last; then drops form
- * fields left without a widget and writes the file anew.
+ * (redaction only), cuts the paths, paints each box last, drops the page's
+ * thumbnail and private data; then drops form fields left without a widget,
+ * links to the annotations removed, XObject names nothing draws, and writes
+ * the file anew. Refuses when an un-shared original (`originals`) is still
+ * reachable without anything drawing it (residue.ts).
  */
 export async function rewritePages(
   bytes: Uint8Array,
   areas: ReadonlyMap<number, PageArea>,
   flatten: Rasterizer | null,
+  originals: readonly Uint8Array[] = [],
 ): Promise<{ bytes: Uint8Array; paths: number; flattened: number }> {
   try {
     const doc = await PdfDocumentObjects.parse(bytes);
@@ -218,8 +227,11 @@ export async function rewritePages(
         return `q ${fmt(r)} ${fmt(g)} ${fmt(b)} rg ${fmt(box.x0)} ${fmt(box.y0)} ${fmt(box.x1 - box.x0)} ${fmt(box.y1 - box.y0)} re f Q`;
       });
       writeContents(ctx, page.dict, `q\n${cut.text ?? content}\nQ\n${FILL_MARK}\n${fills.join("\n")}\n`);
+      for (const k of PAGE_RENDITION_KEYS) page.dict.delete(k);
     }
     pruneOrphanFields(doc);
+    detachRemovedAnnotations(doc);
+    await pruneUnusedXObjects(doc, originals);
     return { bytes: await finish({ doc, boxes: [], changed }), paths, flattened };
   } catch (err) {
     throw rewriteError(err);
@@ -253,8 +265,9 @@ export async function eraseArea(
 
   // 1. Un-share what the page draws over the area.
   let unshared: Uint8Array;
+  let originals: Uint8Array[];
   try {
-    unshared = await unsharePages(new Uint8Array(plain), new Map([[area.page, boxes]]));
+    ({ bytes: unshared, originals } = await unsharePages(new Uint8Array(plain), new Map([[area.page, boxes]])));
   } catch (err) {
     throw rewriteError(err);
   }
@@ -272,7 +285,7 @@ export async function eraseArea(
   });
 
   // 3. Paths, then the fill on top; 4. a fresh file.
-  const out = await rewritePages(new Uint8Array(redacted), new Map([[area.page, { boxes, fills: boxes.map(() => fill) }]]), null);
+  const out = await rewritePages(new Uint8Array(redacted), new Map([[area.page, { boxes, fills: boxes.map(() => fill) }]]), null, originals);
   return { bytes: out.bytes.slice().buffer, paths: out.paths, ownerPassword, annotations };
 }
 

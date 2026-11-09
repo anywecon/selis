@@ -94,7 +94,7 @@ impl Settings {
 }
 
 /// Partial update; `None` fields are left unchanged.
-#[derive(Debug, Clone, Default, Deserialize, Type)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsPatch {
     pub locale: Option<LocalePref>,
@@ -223,6 +223,87 @@ pub(crate) fn apply_patch(library: &Library, patch: SettingsPatch) -> CommandRes
     Ok(settings)
 }
 
+/// Settings that came from outside this device (a `.selispack`, another device's library
+/// move): what they would change here. Nothing is applied until the user confirms them
+/// (security audit run-1, leads 4 and 5); the confirmed `patch` then goes to `update_settings`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ForeignSettings {
+    /// Only the valid values that differ from this device's.
+    pub patch: SettingsPatch,
+    /// Versions that applying `patch` deletes at once (tightened retention), 0 otherwise: the
+    /// second, destructive confirmation says how many.
+    pub prunes_versions: u32,
+}
+
+/// What a foreign settings map would change on this device; `None` when nothing (unknown keys,
+/// invalid values and values equal to this device's are left out).
+pub(crate) fn foreign_settings(
+    library: &Library,
+    map: serde_json::Map<String, serde_json::Value>,
+) -> CommandResult<Option<ForeignSettings>> {
+    let Ok(patch) = serde_json::from_value::<SettingsPatch>(serde_json::Value::Object(map)) else {
+        return Ok(None);
+    };
+    let current = load(library)?;
+    fn differs<T: PartialEq>(next: Option<T>, now: T) -> Option<T> {
+        next.filter(|v| *v != now)
+    }
+    let relay_url = patch.relay_url.and_then(|url| {
+        let url = url.trim();
+        let next = if url.is_empty() {
+            None
+        } else {
+            Some(selis_transfer::parse_relay_url(url)?.to_string())
+        };
+        (next != current.relay_url).then(|| next.unwrap_or_default())
+    });
+    let out = SettingsPatch {
+        locale: differs(patch.locale, current.locale),
+        theme: differs(patch.theme, current.theme),
+        library_sort: differs(patch.library_sort, current.library_sort),
+        library_view: differs(patch.library_view, current.library_view),
+        night_mode: differs(patch.night_mode, current.night_mode),
+        local_only: differs(patch.local_only, current.local_only),
+        relay_url,
+        versions_per_document: differs(
+            patch
+                .versions_per_document
+                .filter(|v| VERSIONS_PER_DOCUMENT.contains(v)),
+            current.versions_per_document,
+        ),
+        history_limit_mb: differs(
+            patch
+                .history_limit_mb
+                .filter(|v| HISTORY_LIMIT_MB.contains(v)),
+            current.history_limit_mb,
+        ),
+        app_lock: differs(patch.app_lock, current.app_lock),
+        scan_auto: differs(patch.scan_auto, current.scan_auto),
+    };
+    if out == SettingsPatch::default() {
+        return Ok(None);
+    }
+    let mut next = current.clone();
+    if let Some(v) = out.versions_per_document {
+        next.versions_per_document = v;
+    }
+    if let Some(v) = out.history_limit_mb {
+        next.history_limit_mb = v;
+    }
+    let prunes_versions = if next.retention() == current.retention() {
+        0
+    } else {
+        library
+            .preview_retention(&next.retention())?
+            .removed_versions
+    };
+    Ok(Some(ForeignSettings {
+        patch: out,
+        prunes_versions,
+    }))
+}
+
 fn in_range(value: &serde_json::Value, range: &std::ops::RangeInclusive<u32>) -> Option<u32> {
     value
         .as_u64()
@@ -259,6 +340,75 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let lib = Library::open(dir.path()).expect("library");
         (dir, lib)
+    }
+
+    /// Security audit run-1, lead 4: foreign settings are only described, never applied, and
+    /// the history they would delete is counted first.
+    #[test]
+    fn foreign_settings_change_nothing_and_count_what_retention_would_delete() {
+        let (_dir, lib) = library();
+        let doc = lib
+            .import_reader(b"%PDF-1.7\n% a\n%%EOF\n".as_slice(), "a")
+            .expect("import")
+            .document;
+        let keep_all = RetentionPolicy {
+            versions_per_document: 100,
+            history_limit_bytes: u64::MAX,
+        };
+        for i in 0..5 {
+            let upload = format!("u{i}");
+            let bytes = format!("%PDF-1.7\n% v{i}\n%%EOF\n").into_bytes();
+            lib.write_upload_chunk(&upload, 0, &bytes).expect("chunk");
+            let current = lib.get_document(&doc.id).expect("doc");
+            lib.commit_working_copy(&upload, &doc.id, &current.blake3, bytes.len() as u64)
+                .expect("working copy");
+            lib.save_version(&doc.id, selis_core::VersionLabel::Auto, &keep_all)
+                .expect("version");
+        }
+        let before = load(&lib).expect("load");
+        let map = serde_json::json!({
+            "versionsPerDocument": 2,
+            "historyLimitMb": 10,
+            "relayUrl": "https://relay.invalid",
+            "localOnly": false,
+            "theme": "sepia",
+            "unknown": 1,
+            "scanAuto": "not a bool",
+        });
+        let serde_json::Value::Object(map) = map else {
+            unreachable!()
+        };
+        let foreign = foreign_settings(&lib, map.clone()).expect("foreign");
+        assert!(
+            foreign.is_none(),
+            "an invalid field makes the map unreadable: nothing offered"
+        );
+        let mut map = map;
+        map.remove("scanAuto");
+        let foreign = foreign_settings(&lib, map)
+            .expect("foreign")
+            .expect("changes");
+        assert_eq!(load(&lib).expect("load"), before, "nothing applied");
+        assert_eq!(foreign.patch.versions_per_document, Some(2));
+        assert_eq!(foreign.patch.history_limit_mb, Some(10));
+        assert_eq!(
+            foreign.patch.relay_url.as_deref(),
+            Some("https://relay.invalid/")
+        );
+        assert_eq!(foreign.patch.local_only, None, "same as this device");
+        assert_eq!(foreign.patch.theme, Some(ThemePref::Sepia));
+        assert_eq!(foreign.prunes_versions, 4);
+        let two = RetentionPolicy {
+            versions_per_document: 2,
+            history_limit_bytes: u64::MAX,
+        };
+        assert_eq!(
+            lib.preview_retention(&two)
+                .expect("preview")
+                .removed_versions,
+            4,
+            "no version deleted"
+        );
     }
 
     #[test]

@@ -5557,7 +5557,7 @@ checksum = "2ab42ca02749e120097e328d91d415325bdf43b1c72c4c8badf37375fe40a813"
 
 [[package]]
 name = "selis-app"
-version = "1.0.0-rc.5"
+version = "1.0.0-rc.6"
 dependencies = [
  "apple-native-keyring-store",
  "base64 0.23.1",
@@ -5586,7 +5586,7 @@ dependencies = [
 
 [[package]]
 name = "selis-core"
-version = "1.0.0-rc.5"
+version = "1.0.0-rc.6"
 dependencies = [
  "aead-stream",
  "argon2",
@@ -5607,7 +5607,7 @@ dependencies = [
 
 [[package]]
 name = "selis-pdfops"
-version = "1.0.0-rc.5"
+version = "1.0.0-rc.6"
 dependencies = [
  "blake3",
  "qpdf",
@@ -5618,7 +5618,7 @@ dependencies = [
 
 [[package]]
 name = "selis-scan"
-version = "1.0.0-rc.5"
+version = "1.0.0-rc.6"
 dependencies = [
  "image",
  "imageproc",
@@ -5627,7 +5627,7 @@ dependencies = [
 
 [[package]]
 name = "selis-transfer"
-version = "1.0.0-rc.5"
+version = "1.0.0-rc.6"
 dependencies = [
  "anyhow",
  "blake3",

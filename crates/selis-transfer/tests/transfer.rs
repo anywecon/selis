@@ -440,15 +440,56 @@ async fn an_untrusted_device_cannot_push_or_ping() -> Result {
     Ok(())
 }
 
+/// Security audit run-1, lead 5: a sender from a ticket must not learn which blobs the
+/// receiver holds, so a ticket receive fetches every blob (the app dedupes on import).
 #[tokio::test(flavor = "multi_thread")]
-async fn a_library_move_carries_tags_signatures_and_settings_and_skips_what_is_there() -> Result {
+async fn a_ticket_receive_fetches_every_blob_even_one_the_receiver_has() -> Result {
+    use selis_transfer::Have;
+    let dir = tempfile::tempdir()?;
+    let a = service(dir.path(), "a", key(), LIFETIME).await?;
+    let known = write(dir.path(), "known.pdf", 50_000, 7)?;
+    let known_hash = iroh_blobs::Hash::new(std::fs::read(&known)?);
+    let known_path = known.clone();
+    let mut cfg = ServiceConfig::new(key(), dir.path().join("b"), Network::LocalOnly);
+    cfg.have = Some(Have(std::sync::Arc::new(move |h| {
+        (*h == known_hash).then(|| known_path.clone())
+    })));
+    let b = TransferService::start(cfg).await?;
+    let (sid, ticket) = a
+        .offer_with(
+            vec![OfferItem {
+                title: "Known".into(),
+                name: "k.pdf".into(),
+                path: known.clone(),
+                ..Default::default()
+            }],
+            None,
+            None,
+        )
+        .await?;
+    let rid = b.receive(ticket, dir.path().join("in"))?;
+    send_code(&a, &sid).await?;
+    a.decide(&sid, true)?;
+    let ReceiveState::Done { items, .. } = receive_end(&b, &rid).await? else {
+        anyhow::bail!("receive failed: {:?}", b.receive_state(&rid));
+    };
+    assert_ne!(items[0].path, known);
+    assert_eq!(std::fs::read(&items[0].path)?, std::fs::read(&known)?);
+    assert_eq!(b.blob_status_for_test(known_hash).await, Some(true));
+    a.close(true).await;
+    b.close(true).await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_library_move_carries_tags_signatures_and_settings() -> Result {
     use selis_transfer::{Have, OfferLibrary, OfferSignature};
     let dir = tempfile::tempdir()?;
     let a = service(dir.path(), "a", key(), LIFETIME).await?;
     let known = write(dir.path(), "known.pdf", 50_000, 7)?;
     let known_hash = iroh_blobs::Hash::new(std::fs::read(&known)?);
     let known_path = known.clone();
-    // The receiver already has `known` (same BLAKE3): it must not be fetched.
+    // The receiver already has `known` (same BLAKE3): fetched anyway (a ticket, not a trusted push).
     let mut cfg = ServiceConfig::new(key(), dir.path().join("b"), Network::LocalOnly);
     cfg.have = Some(Have(std::sync::Arc::new(move |h| {
         (*h == known_hash).then(|| known_path.clone())
@@ -494,8 +535,7 @@ async fn a_library_move_carries_tags_signatures_and_settings_and_skips_what_is_t
     let ReceiveState::Done { items, library } = receive_end(&b, &rid).await? else {
         anyhow::bail!("move failed: {:?}", b.receive_state(&rid));
     };
-    // The known document points at the receiver's own copy, nothing was downloaded for it.
-    assert_eq!(items[0].path, known);
+    assert_eq!(std::fs::read(&items[0].path)?, std::fs::read(&known)?);
     assert_eq!(
         (items[0].tags.clone(), items[0].favorite),
         (vec!["Home".to_string()], true)
@@ -511,10 +551,6 @@ async fn a_library_move_carries_tags_signatures_and_settings_and_skips_what_is_t
         library.settings.get("theme"),
         Some(&serde_json::json!("sepia"))
     );
-    assert!(!matches!(
-        b.blob_status_for_test(known_hash).await,
-        Some(true)
-    ));
     a.close(true).await;
     b.close(true).await;
     Ok(())
@@ -590,5 +626,51 @@ async fn a_receive_rate_paces_the_download() -> Result {
     assert!(took >= Duration::from_millis(3_000), "took {took:?}");
     sender.close(true).await;
     receiver.close(true).await;
+    Ok(())
+}
+
+/// A trusted device's push (ADR 0014) still skips the blobs the receiver has.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_trusted_push_skips_what_the_receiver_has() -> Result {
+    use selis_transfer::Have;
+    let dir = tempfile::tempdir()?;
+    let a = service(dir.path(), "a", key(), LIFETIME).await?;
+    let known = write(dir.path(), "known.pdf", 50_000, 7)?;
+    let known_hash = iroh_blobs::Hash::new(std::fs::read(&known)?);
+    let known_path = known.clone();
+    let mut cfg = ServiceConfig::new(key(), dir.path().join("b"), Network::LocalOnly);
+    cfg.ticket_lifetime = LIFETIME;
+    cfg.have = Some(Have(std::sync::Arc::new(move |h| {
+        (*h == known_hash).then(|| known_path.clone())
+    })));
+    let b = TransferService::start(cfg).await?;
+    a.set_trusted([b.endpoint_id()]);
+    b.set_trusted([a.endpoint_id()]);
+    b.set_receiving(Some(dir.path().join("in")));
+    let sid = a
+        .push(
+            b.endpoint_id(),
+            vec![OfferItem {
+                title: "Known".into(),
+                name: "k.pdf".into(),
+                path: known.clone(),
+                ..Default::default()
+            }],
+            None,
+        )
+        .await?;
+    let incoming = until(|| {
+        let v = b.take_incoming();
+        (!v.is_empty()).then_some(v)
+    })
+    .await?;
+    let ReceiveState::Done { items, .. } = receive_end(&b, &incoming[0].0).await? else {
+        anyhow::bail!("push receive failed: {:?}", b.receive_state(&incoming[0].0));
+    };
+    assert_eq!(items[0].path, known);
+    assert_ne!(b.blob_status_for_test(known_hash).await, Some(true));
+    assert_eq!(send_end(&a, &sid).await?, SendState::Done);
+    a.close(true).await;
+    b.close(true).await;
     Ok(())
 }

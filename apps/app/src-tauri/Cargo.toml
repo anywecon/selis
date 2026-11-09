@@ -44,6 +44,8 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 
 [dev-dependencies]
 tempfile.workspace = true
+# MockRuntime for command tests (no extra crates).
+tauri = { version = "~2.12.3", features = ["protocol-asset", "test"] }
 tokio = { version = "1.53.2", default-features = false, features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
 
 [target.'cfg(target_os = "android")'.dependencies]

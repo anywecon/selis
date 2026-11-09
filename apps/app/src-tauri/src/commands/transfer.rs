@@ -166,10 +166,16 @@ pub enum ReceiveView {
     Done {
         document_ids: Vec<String>,
         duplicates: u32,
-        /// Signatures added (library move).
+        /// Signatures added (library move from a trusted device).
         signatures: u32,
-        /// A library move (settings applied too).
+        /// Signatures the sender offered that were not added: it is not a trusted device
+        /// (security audit run-1, lead 5).
+        signatures_skipped: u32,
+        /// A library move.
         moved: bool,
+        /// What the sender's settings would change here. Not applied: the user confirms them
+        /// first, then the UI calls `update_settings`.
+        settings: Option<settings::ForeignSettings>,
         /// The sending device (hex id) and whether it is already trusted.
         peer: Option<String>,
         trusted: bool,
@@ -365,6 +371,19 @@ async fn android_call<R: Runtime>(app: &AppHandle<R>, cmd: &str, args: serde_jso
     {
         eprintln!("selis: transfer plugin {cmd}: {e}");
     }
+}
+
+/// Where a receive keeps its partial data: `<store>/in/<id>`. The id must be a plain id (1..=64
+/// of `[A-Za-z0-9-]`; transfer ids are UUIDs made here), so the folder is always directly in
+/// `in/` and a recursive delete of it never reaches anything else.
+fn incoming_dir(store: &std::path::Path, id: &str) -> CommandResult<PathBuf> {
+    let plain = !id.is_empty()
+        && id.len() <= 64
+        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-');
+    if !plain {
+        return Err(err(ErrorCode::InvalidArgument, "not a transfer id"));
+    }
+    Ok(store.join("in").join(id))
 }
 
 fn store_dir<R: Runtime>(app: &AppHandle<R>) -> CommandResult<PathBuf> {
@@ -1025,6 +1044,38 @@ async fn receive<R: Runtime>(
     Ok(id)
 }
 
+/// Who a transfer link or code comes from, shown before a receive starts (security audit run-1,
+/// lead 5: a link from another app or a web page never starts one by itself).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TicketSender {
+    /// The sending device's id (64 hex characters).
+    pub peer: String,
+    /// Its name when it is one of this device's trusted devices.
+    pub trusted_name: Option<String>,
+}
+
+/// Reads the sender of a transfer link without connecting to it.
+#[tauri::command]
+#[specta::specta]
+pub async fn transfer_ticket_sender(
+    library: State<'_, Arc<Library>>,
+    link: String,
+) -> CommandResult<TicketSender> {
+    let ticket = TransferTicket::parse(link.trim())
+        .map_err(|_| err(ErrorCode::InvalidArgument, "invalidLink"))?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if !ticket.is_valid_at(now) {
+        return Err(err(ErrorCode::InvalidArgument, "expired"));
+    }
+    let peer = ticket.addr.id.to_string();
+    let trusted_name = library.trusted_device(&peer)?.map(|d| d.name);
+    Ok(TicketSender { peer, trusted_name })
+}
+
 /// Continues a receive that stopped (see `transfer_resumable`).
 #[tauri::command]
 #[specta::specta]
@@ -1057,7 +1108,7 @@ pub async fn transfer_resume<R: Runtime>(
             ..Default::default()
         },
     )?;
-    let dest = store_dir(&app)?.join("in").join(&id);
+    let dest = incoming_dir(&store_dir(&app)?, &id)?;
     let session = o.service.resume(info, dest.clone());
     lock(&state.receives).insert(id.clone(), ReceiveView::Connecting);
     let task = tauri::async_runtime::spawn(track_receive(
@@ -1111,7 +1162,9 @@ pub async fn transfer_receive_status(
             document_ids: vec![],
             duplicates: 0,
             signatures: 0,
+            signatures_skipped: 0,
             moved: false,
+            settings: None,
             trusted: row
                 .peer
                 .as_deref()
@@ -1143,13 +1196,26 @@ pub async fn transfer_cancel_receive<R: Runtime>(
     library: State<'_, Arc<Library>>,
     id: String,
 ) -> CommandResult<()> {
+    // The id comes from the UI: a plain id (it names a folder below) that this app knows.
+    let store = store_dir(&app).ok();
+    let dir = match &store {
+        Some(store) => Some(incoming_dir(store, &id)?),
+        None => None,
+    };
+    let row = library.transfer(&id)?.is_some();
+    let mut running = false;
     if let Some(o) = state.open.lock().await.as_mut() {
         if let Some(task) = o.trackers.remove(&id) {
             task.abort();
+            running = true;
         }
         if let Some(session) = o.sessions.remove(&id) {
             o.service.cancel_receive(&session);
+            running = true;
         }
+    }
+    if !row && !running && !lock(&state.receives).contains_key(&id) {
+        return Err(err(ErrorCode::NotFound, "no such transfer"));
     }
     lock(&state.receives).insert(
         id.clone(),
@@ -1157,7 +1223,7 @@ pub async fn transfer_cancel_receive<R: Runtime>(
             error: TransferErrorCode::Cancelled,
         },
     );
-    if library.transfer(&id)?.is_some() {
+    if row {
         library.transfer_update(
             &id,
             &TransferUpdate {
@@ -1166,8 +1232,8 @@ pub async fn transfer_cancel_receive<R: Runtime>(
             },
         )?;
     }
-    if let Ok(dir) = store_dir(&app) {
-        let _ = std::fs::remove_dir_all(dir.join("in").join(&id));
+    if let Some(dir) = dir {
+        let _ = std::fs::remove_dir_all(dir);
     }
     maybe_close(&app, &state, &library).await;
     Ok(())
@@ -1238,6 +1304,13 @@ async fn track_receive<R: Runtime>(
             } => {
                 lock(&state.receives).insert(id.clone(), ReceiveView::Saving);
                 let total: u64 = items.iter().map(|i| i.size).sum();
+                let peer = service
+                    .pushed_by(&session)
+                    .map(|p| p.to_string())
+                    .or_else(|| library.transfer(&id).ok().flatten().and_then(|r| r.peer));
+                let trusted = peer
+                    .as_deref()
+                    .is_some_and(|p| library.trusted_device(p).ok().flatten().is_some());
                 let lib = Arc::clone(&library);
                 let imported = tauri::async_runtime::spawn_blocking(move || {
                     let mut ids = Vec::new();
@@ -1268,43 +1341,56 @@ async fn track_receive<R: Runtime>(
                         lib.apply_received_metadata(&out.document.id, &i.tags, i.favorite)?;
                         ids.push(out.document.id);
                     }
-                    // A library move: signatures (by id) and settings.
+                    // A library move: the sender's signatures only from a trusted device; its
+                    // settings are described, never applied (the user confirms them).
                     let mut signatures = 0u32;
+                    let mut signatures_skipped = 0u32;
+                    let mut foreign = None;
                     let moved = extras.is_some();
                     if let Some(extras) = extras {
                         for s in &extras.signatures {
-                            if lib.import_received_signature(&s.id, &s.kind, &s.path)? {
+                            if !trusted {
+                                signatures_skipped += 1;
+                            } else if lib.import_received_signature(&s.id, &s.kind, &s.path)? {
                                 signatures += 1;
                             }
                         }
-                        if let Ok(patch) = serde_json::from_value::<settings::SettingsPatch>(
-                            serde_json::Value::Object(extras.settings),
-                        ) && let Err(e) = settings::apply_patch(&lib, patch)
-                        {
-                            eprintln!("selis: moved settings not applied: {}", e.message);
-                        }
+                        foreign =
+                            settings::foreign_settings(&lib, extras.settings).unwrap_or_else(|e| {
+                                eprintln!("selis: moved settings not read: {}", e.message);
+                                None
+                            });
                     }
-                    Ok::<_, selis_core::Error>((ids, duplicates, count, signatures, moved))
+                    Ok::<_, selis_core::Error>((
+                        ids,
+                        duplicates,
+                        count,
+                        (signatures, signatures_skipped),
+                        moved,
+                        foreign,
+                    ))
                 })
                 .await;
                 let _ = std::fs::remove_dir_all(&dest);
-                let peer = service
-                    .pushed_by(&session)
-                    .map(|p| p.to_string())
-                    .or_else(|| library.transfer(&id).ok().flatten().and_then(|r| r.peer));
-                let trusted = peer
-                    .as_deref()
-                    .is_some_and(|p| library.trusted_device(p).ok().flatten().is_some());
                 if let Some(p) = &peer {
                     let _ = library.touch_trusted_device(p);
                 }
                 let (view, update) = match imported {
-                    Ok(Ok((document_ids, duplicates, count, signatures, moved))) => (
+                    Ok(Ok((
+                        document_ids,
+                        duplicates,
+                        count,
+                        (signatures, signatures_skipped),
+                        moved,
+                        settings,
+                    ))) => (
                         ReceiveView::Done {
                             document_ids,
                             duplicates,
                             signatures,
+                            signatures_skipped,
                             moved,
+                            settings,
                             peer: peer.clone(),
                             trusted,
                         },
@@ -1786,6 +1872,34 @@ pub async fn transfer_debug_force_relay(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Security audit run-1, lead 7: a cancelled receive deletes `in/<id>` recursively, so the
+    /// id must not be able to name anything else.
+    #[test]
+    fn a_receive_folder_never_leaves_the_transfer_store() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = dir.path().join("cache").join("transfer");
+        let victim = dir.path().join("victim");
+        std::fs::create_dir_all(&victim).expect("victim");
+        std::fs::write(victim.join("keep.txt"), b"keep").expect("file");
+        let absolute = victim.to_string_lossy().into_owned();
+        for bad in [
+            "../../../victim",
+            "..",
+            "",
+            "a/b",
+            r"a\b",
+            absolute.as_str(),
+        ] {
+            assert!(incoming_dir(&store, bad).is_err(), "{bad}");
+        }
+        let id = "0192f0c4-7d2e-7a10-8b3c-2f4e5a6b7c8d";
+        assert_eq!(
+            incoming_dir(&store, id).expect("id"),
+            store.join("in").join(id)
+        );
+        assert!(victim.join("keep.txt").exists());
+    }
 
     #[tokio::test]
     async fn nothing_is_open_until_the_transfer_screen_opens_it() {

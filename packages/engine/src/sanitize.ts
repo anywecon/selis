@@ -21,7 +21,9 @@ import {
   type PdfObj,
   textOf,
   textString,
+  UncheckedContentError,
 } from "./pdf-objects";
+import { detachRemovedAnnotations } from "./residue";
 
 /** What took the place of an outline title or a choice option that named a redacted word. */
 export const REDACTED_TEXT = "█████";
@@ -44,10 +46,15 @@ const words = (s: string): string[] => fold(s).split(/[^\p{L}\p{N}]+/u).filter((
 
 export type TermMatcher = (text: string) => boolean;
 
-/** Whole-word matcher for the redacted terms; matches nothing when no term has a usable word. */
-export function termMatcher(terms: readonly string[]): TermMatcher {
+function termKeys(terms: readonly string[]): Set<string> {
   const keys = new Set<string>();
   for (const term of terms) for (const w of words(term)) if (w.length >= 3 && !STOPWORDS.has(w)) keys.add(w);
+  return keys;
+}
+
+/** Whole-word matcher for the redacted terms; matches nothing when no term has a usable word. */
+export function termMatcher(terms: readonly string[]): TermMatcher {
+  const keys = termKeys(terms);
   if (keys.size === 0) return () => false;
   return (text) => words(text).some((w) => keys.has(w));
 }
@@ -62,6 +69,8 @@ export type SanitizeReport = {
 type Ctx = {
   doc: PdfDocumentObjects;
   match: TermMatcher;
+  /** Whether any term has a usable word (else nothing needs reading). */
+  checking: boolean;
   removed: string[];
   /** Text of the annotations removed for naming a redacted word. */
   annotations: string[];
@@ -74,12 +83,20 @@ const isTextMatch = (ctx: Ctx, o: PdfObj | undefined): boolean => {
   return v.t === "str" && ctx.match(textOf(v.v));
 };
 
-async function streamText(ctx: Ctx, o: PdfObj | undefined): Promise<string | null> {
+/**
+ * The text of a string or stream. Fail closed: a stream in an encoding this
+ * reader cannot decode might name a redacted word, so when there are words to
+ * look for, the redaction stops (`what` names it for the message).
+ */
+async function streamText(ctx: Ctx, o: PdfObj | undefined, what: string): Promise<string | null> {
   const v = ctx.doc.get(o);
   if (v.t === "str") return textOf(v.v);
   if (v.t !== "stream") return null;
   const data = await decodeStream(v);
-  if (!data) return null;
+  if (!data) {
+    if (!ctx.checking) return null;
+    throw new UncheckedContentError(`${what} cannot be read to check it for the redacted words`);
+  }
   // Text in streams is Latin-1 / PDFDocEncoding (scripts, AP strings) or UTF-8 (XMP).
   return `${bytesToLatin1(data)}\n${new TextDecoder("utf-8", { fatal: false }).decode(data)}`;
 }
@@ -97,13 +114,17 @@ function dropKeys(ctx: Ctx, dict: PdfDict, keys: readonly string[], what: string
 async function sanitizeMetadata(ctx: Ctx): Promise<void> {
   const info = ctx.doc.dict(ctx.doc.trailer.get("Info"));
   if (info) for (const k of [...info.keys()]) dropKeys(ctx, info, [k], "Info");
-  // XMP mirrors Info (and may hold more): drop any metadata stream that names a redacted word.
+  // XMP mirrors Info (and may hold more): drop any metadata stream that names a redacted word,
+  // or that cannot be read as XML (an encoding not decoded here; PDFium can drop an
+  // /ASCIIHexDecode filter and keep the hex digits as the data, measured).
   for (const obj of ctx.doc.objects.values()) {
     const dict = obj.t === "dict" ? obj.v : obj.t === "stream" ? obj.dict : null;
     const meta = dict?.get("Metadata");
-    if (!dict || !meta) continue;
-    const text = await streamText(ctx, meta);
-    if (text !== null && ctx.match(text)) {
+    if (!dict || !meta || !ctx.checking) continue;
+    const stream = ctx.doc.get(meta);
+    const data = stream.t === "stream" ? await decodeStream(stream) : null;
+    const text = data === null ? null : `${bytesToLatin1(data)}\n${new TextDecoder("utf-8", { fatal: false }).decode(data)}`;
+    if (text === null || !/<(\?xpacket|x:xmpmeta|rdf:RDF)\b/.test(text) || ctx.match(text)) {
       dict.delete("Metadata");
       ctx.removed.push("XMP metadata");
     }
@@ -178,7 +199,7 @@ async function scriptMatches(ctx: Ctx, action: PdfObj | undefined): Promise<bool
   if (!a) return false;
   const js = a.get("JS");
   if (js) {
-    const text = await streamText(ctx, js);
+    const text = await streamText(ctx, js, "a script");
     if (text !== null && ctx.match(text)) return true;
   }
   return false;
@@ -262,7 +283,7 @@ async function fileSpecMatches(ctx: Ctx, spec: PdfObj | undefined): Promise<bool
   if (["F", "UF", "Desc"].some((k) => isTextMatch(ctx, fs.get(k)))) return true;
   const ef = ctx.doc.dict(fs.get("EF"));
   for (const file of ef?.values() ?? []) {
-    const text = await streamText(ctx, file);
+    const text = await streamText(ctx, file, "an attached file");
     if (text !== null && ctx.match(text)) return true;
   }
   return false;
@@ -372,7 +393,7 @@ function removeOrphanFields(ctx: Ctx, catalog: PdfDict): void {
 export function pruneOrphanFields(doc: PdfDocumentObjects): number {
   const catalog = doc.catalog();
   if (!catalog) return 0;
-  const ctx: Ctx = { doc, match: () => false, removed: [], annotations: [], kept: new Set() };
+  const ctx: Ctx = { doc, match: () => false, checking: false, removed: [], annotations: [], kept: new Set() };
   removeOrphanFields(ctx, catalog);
   return ctx.removed.length;
 }
@@ -416,13 +437,13 @@ async function sanitizeAnnotations(ctx: Ctx, catalog: PdfDict): Promise<void> {
       const texts = [d.get("Contents"), d.get("RC")];
       let named = false;
       for (const t of texts) {
-        const text = t ? await streamText(ctx, t) : null;
+        const text = t ? await streamText(ctx, t, "an annotation's text") : null;
         if (text !== null && ctx.match(text)) named = true;
       }
       const ap = ctx.doc.dict(d.get("AP"));
       const normal = ap ? ctx.doc.get(ap.get("N")) : null;
       if (!named && normal?.t === "stream") {
-        const text = await streamText(ctx, normal);
+        const text = await streamText(ctx, normal, "an annotation's appearance");
         if (text !== null && ctx.match(text)) named = true;
       }
       if (d.get("FS") && (await fileSpecMatches(ctx, d.get("FS")))) named = true;
@@ -463,6 +484,39 @@ function sanitizeStructure(ctx: Ctx, catalog: PdfDict): void {
   };
   const tree = ctx.doc.dict(catalog.get("StructTreeRoot"));
   if (tree) visit(tree.get("K"));
+}
+
+/**
+ * Associated files (/AF arrays: catalog, pages, annotations, structure
+ * elements, XObjects; PDF/A-3, Factur-X) that name a redacted word go from
+ * every array, not only from /Names /EmbeddedFiles: the same file spec is
+ * often listed in both.
+ */
+async function sanitizeAssociatedFiles(ctx: Ctx): Promise<void> {
+  const seen = new Set<PdfObj>();
+  const dicts: PdfDict[] = [];
+  const visit = (o: PdfObj) => {
+    if (seen.has(o)) return;
+    seen.add(o);
+    if (o.t === "arr") for (const x of o.v) visit(x);
+    else if (o.t === "dict" || o.t === "stream") {
+      const d = o.t === "dict" ? o.v : o.dict;
+      if (d.has("AF")) dicts.push(d);
+      for (const x of d.values()) visit(x);
+    }
+  };
+  for (const o of ctx.doc.objects.values()) visit(o);
+  for (const d of dicts) {
+    const af = ctx.doc.array(d.get("AF"));
+    if (!af) continue;
+    const kept: PdfObj[] = [];
+    for (const spec of af) {
+      if (await fileSpecMatches(ctx, spec)) ctx.removed.push("associated file");
+      else kept.push(spec);
+    }
+    if (kept.length === 0) d.delete("AF");
+    else af.splice(0, af.length, ...kept);
+  }
 }
 
 /** Identifiers, not text: a match there is chance (an annotation's /NM, the file /ID). */
@@ -518,17 +572,19 @@ export async function sanitizeRedacted(
     const nm = o.t === "dict" ? o.v.get("NM") : undefined;
     if (o.t === "dict" && nm?.t === "str" && keep(textOf(nm.v))) kept.add(o.v);
   }
-  const ctx: Ctx = { doc, match: termMatcher(terms), removed: [], annotations: [], kept };
+  const ctx: Ctx = { doc, match: termMatcher(terms), checking: termKeys(terms).size > 0, removed: [], annotations: [], kept };
   const catalog = doc.catalog();
   if (!catalog) throw new Error("no catalog");
   await sanitizeMetadata(ctx);
   sanitizeOutline(ctx, catalog);
   await sanitizeNames(ctx, catalog);
+  await sanitizeAssociatedFiles(ctx);
   await sanitizeActions(ctx, catalog);
   await sanitizeFields(ctx, catalog);
   await sanitizeAnnotations(ctx, catalog);
   sanitizeStructure(ctx, catalog);
   removeOrphanFields(ctx, catalog);
+  detachRemovedAnnotations(doc);
   sweepStrings(ctx);
   return { bytes: doc.write(), report: { removed: ctx.removed, annotations: ctx.annotations } };
 }

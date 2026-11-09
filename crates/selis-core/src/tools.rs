@@ -68,7 +68,7 @@ impl Library {
             .len();
         let size =
             i64::try_from(size_bytes).map_err(|_| Error::InvalidArgument("file too large"))?;
-        rename_durable(&run.output, &self.working_path(&run.document_id))?;
+        rename_durable(&run.output, &self.working_path(&run.document_id)?)?;
         self.conn().execute(
             "INSERT INTO working_copies (document_id, base_blake3, size_bytes, saved_at)
              VALUES (?1, ?2, ?3, ?4)

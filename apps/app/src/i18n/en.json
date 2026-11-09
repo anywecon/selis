@@ -224,7 +224,8 @@
       "qr": "Show QR code",
       "toDevice": "Move to {name}",
       "empty": "Your library is empty.",
-      "movedBody": "Signatures and settings came along."
+      "signaturesAdded": "{count, plural, one {# signature came along.} other {# signatures came along.}}",
+      "signaturesSkipped": "{count, plural, one {# signature was not added: the sending device is not one of your saved devices.} other {# signatures were not added: the sending device is not one of your saved devices.}}"
     },
     "pack": {
       "exportOpen": "Save as file…",
@@ -257,6 +258,33 @@
         "tooLarge": "The file is larger than Selis accepts.",
         "io": "The file could not be read."
       }
+    },
+    "prompt": {
+      "title": "Receive from this device?",
+      "trusted": "From {name}, one of your saved devices.",
+      "device": "From device {id}",
+      "unknownHelp": "This device is not one of your saved devices. Only continue if you are expecting documents from it.",
+      "accept": "Receive",
+      "decline": "Don't receive"
+    },
+    "foreign": {
+      "title": "Use these settings?",
+      "fromPack": "This pack would change these settings on this device. Nothing has changed yet.",
+      "fromDevice": "The other device would change these settings here. Nothing has changed yet.",
+      "on": "On",
+      "off": "Off",
+      "nightMode": "Night mode",
+      "scanAuto": "Automatic capture",
+      "sortLastOpened": "Last opened",
+      "pruneWarning": "{count, plural, one {With these limits # older version of your documents is deleted.} other {With these limits # older versions of your documents are deleted.}}",
+      "apply": "Apply",
+      "decline": "Don't apply",
+      "pruneTitle": "This deletes older versions",
+      "pruneBody": "{count, plural, one {# older version of your documents is deleted now. This can't be undone.} other {# older versions of your documents are deleted now. This can't be undone.}}",
+      "pruneConfirm": "{count, plural, one {Delete # version and apply} other {Delete # versions and apply}}",
+      "back": "Back",
+      "applied": "Settings applied.",
+      "failed": "The settings could not be applied. Nothing changed."
     }
   },
   "settings": {
@@ -558,6 +586,7 @@
     "applied": "{count, plural, one {Applied # mark.} other {Applied # marks.}}",
     "discarded": "{count, plural, one {The mark that was not applied was removed.} other {The # marks that were not applied were removed.}}",
     "failed": "Redaction failed. The document did not change.",
+    "unchecked": "Nothing was redacted: part of this document is stored in a way Selis can't check, so it can't promise the content would be gone. The document did not change.",
     "earlierTitle": "Earlier versions still have it",
     "earlierBody": "The new version no longer contains what you removed. The earlier versions of this document in Selis, the imported original among them, still do.",
     "earlierDelete": "Delete earlier versions",
@@ -604,6 +633,7 @@
     "appliedAnnotations": "Erased. Annotations over the area: {removed} removed, {clipped} cut to fit. A new version was saved; the earlier ones are kept.",
     "deleted": "Object deleted. A new version was saved; the earlier ones are kept.",
     "failed": "Could not erase here.",
+    "unchecked": "Nothing was erased: part of this page is stored in a way Selis can't check, so it can't promise the content would be gone. The document did not change.",
     "pickFailed": "Could not pick a color here.",
     "discarded": "{count, plural, one {# erase area was not applied and was removed.} other {# erase areas were not applied and were removed.}}",
     "signedTitle": "This document is signed",

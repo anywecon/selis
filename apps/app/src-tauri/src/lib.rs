@@ -70,6 +70,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
         commands::transfer::transfer_receive::<tauri::Wry>,
         commands::transfer::transfer_receive_status,
         commands::transfer::transfer_cancel_receive::<tauri::Wry>,
+        commands::transfer::transfer_ticket_sender,
         commands::transfer::transfer_resumable,
         commands::transfer::transfer_resume::<tauri::Wry>,
         commands::transfer::transfer_pause,
@@ -139,6 +140,7 @@ pub fn run() {
             app.manage(Arc::new(commands::transfer::TransferState::default()));
             app.manage(Arc::new(requests::RequestResults::default()));
             app.manage(Arc::new(commands::open_with::OpenQueue::default()));
+            app.manage(Arc::new(commands::picker::GrantedSources::default()));
             Ok(())
         })
         .build(tauri::generate_context!());

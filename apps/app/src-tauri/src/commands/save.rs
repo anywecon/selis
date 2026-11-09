@@ -105,6 +105,8 @@ pub async fn discard_working_copy(
 ) -> CommandResult<()> {
     let library = Arc::clone(&library);
     blocking("discard", move || {
+        // Only a document the library has (the id is checked again where it becomes a path).
+        library.get_document(&document_id)?;
         library.discard_working_copy(&document_id)
     })
     .await
@@ -169,7 +171,7 @@ pub async fn stage_pdf<R: Runtime>(
     let library = Arc::clone(&library);
     results
         .run_once(&request_id, "stage_pdf", async move {
-            let path = super::library::parse_source(source.trim())?;
+            let path = super::picker::granted_source(&app, &source)?;
             tauri::async_runtime::spawn_blocking(move || {
                 let mut opts = OpenOptions::new();
                 opts.read(true);

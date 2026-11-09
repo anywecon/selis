@@ -114,7 +114,7 @@ export function createMockPack(deps: Deps) {
             ids.push(out.document.id);
             if (out.duplicate) duplicates += 1;
           }
-          return { status: "imported", documentIds: ids, duplicates, signatures: 0, settings: false };
+          return { status: "imported", documentIds: ids, duplicates, signatures: 0, settings: null };
         });
       default:
         return deps.fail("invalidArgument", `unknown command ${cmd}`);

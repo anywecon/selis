@@ -7,9 +7,11 @@
  * the erase (ADR 0033), which rewrites the paths and XObject names of one page.
  *
  * Reads classic and stream cross-reference sections (with /Prev chains),
- * object streams and Flate data (PNG predictors included). Encrypted files are
- * refused: their strings cannot be read without the key.
+ * object streams and the non-image stream filters (filters.ts). Encrypted files
+ * are refused: their strings cannot be read without the key.
  */
+
+import { decodeFilters, type Filter, NO_PREDICTOR } from "./filters";
 
 export type PdfDict = Map<string, PdfObj>;
 export type PdfObj =
@@ -25,6 +27,15 @@ export type PdfObj =
 
 export class PdfFormatError extends Error {
   override readonly name = "PdfFormatError";
+}
+
+/**
+ * A redaction or erase met content it cannot read, rewrite or prove clean (a
+ * stream in an encoding it does not decode, an object it cannot account for).
+ * It fails closed: nothing is saved, and the user is told why.
+ */
+export class UncheckedContentError extends Error {
+  override readonly name: string = "UncheckedContentError";
 }
 
 const NULL: PdfObj = { t: "null" };
@@ -266,56 +277,26 @@ export async function deflate(data: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-async function inflate(data: Uint8Array): Promise<Uint8Array> {
-  const stream = new Blob([data.slice().buffer]).stream().pipeThrough(new DecompressionStream("deflate"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-}
-
-/** PNG row predictors (10–15), as cross-reference and object streams use them. */
-function unpredict(data: Uint8Array, columns: number, colors: number, bpc: number): Uint8Array {
-  const bpp = Math.max(1, Math.ceil((colors * bpc) / 8));
-  const rowLen = Math.ceil((columns * colors * bpc) / 8);
-  const rows = Math.floor(data.length / (rowLen + 1));
-  const out = new Uint8Array(rows * rowLen);
-  let prev = new Uint8Array(rowLen);
-  for (let r = 0; r < rows; r++) {
-    const type = data[r * (rowLen + 1)] as number;
-    const row = data.subarray(r * (rowLen + 1) + 1, (r + 1) * (rowLen + 1));
-    const cur = new Uint8Array(rowLen);
-    for (let i = 0; i < rowLen; i++) {
-      const raw = row[i] as number;
-      const left = i >= bpp ? (cur[i - bpp] as number) : 0;
-      const up = prev[i] as number;
-      const upLeft = i >= bpp ? (prev[i - bpp] as number) : 0;
-      let v: number;
-      switch (type) {
-        case 0:
-          v = raw;
-          break;
-        case 1:
-          v = raw + left;
-          break;
-        case 2:
-          v = raw + up;
-          break;
-        case 3:
-          v = raw + ((left + up) >> 1);
-          break;
-        case 4: {
-          const p = left + up - upLeft;
-          const pa = Math.abs(p - left);
-          const pb = Math.abs(p - up);
-          const pc = Math.abs(p - upLeft);
-          v = raw + (pa <= pb && pa <= pc ? left : pb <= pc ? up : upLeft);
-          break;
-        }
-        default:
-          throw new PdfFormatError(`unknown PNG predictor ${type}`);
-      }
-      cur[i] = v & 0xff;
+/** Inflated data, or null once it passes `limit` bytes (the rest is not decompressed). */
+async function inflate(data: Uint8Array, limit: number): Promise<Uint8Array | null> {
+  const reader = new Blob([data.slice().buffer]).stream().pipeThrough(new DecompressionStream("deflate")).getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > limit) {
+      await reader.cancel();
+      return null;
     }
-    out.set(cur, r * rowLen);
-    prev = cur;
+    chunks.push(value);
+  }
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.length;
   }
   return out;
 }
@@ -323,24 +304,41 @@ function unpredict(data: Uint8Array, columns: number, colors: number, bpc: numbe
 const num = (o: PdfObj | undefined, fallback = 0): number => (o?.t === "num" ? Number(o.v) : fallback);
 export const nameOf = (o: PdfObj | undefined): string | null => (o?.t === "name" ? o.v : null);
 
-/**
- * Decoded stream data: no filter, or FlateDecode (with a PNG predictor). Other
- * filters (images, ASCII85…) give null: nothing here needs to read those.
- */
-export async function decodeStream(s: Extract<PdfObj, { t: "stream" }>): Promise<Uint8Array | null> {
-  const filter = s.dict.get("Filter");
-  const filters = filter === undefined ? [] : filter.t === "arr" ? filter.v.map(nameOf) : [nameOf(filter)];
-  if (filters.length === 0) return s.data;
-  if (filters.length !== 1 || (filters[0] !== "FlateDecode" && filters[0] !== "Fl")) return null;
-  let out = await inflate(s.data);
-  const parms = s.dict.get("DecodeParms") ?? s.dict.get("DP");
-  const p = parms?.t === "arr" ? parms.v[0] : parms;
-  if (p?.t === "dict") {
-    const predictor = num(p.v.get("Predictor"), 1);
-    if (predictor >= 10) out = unpredict(out, num(p.v.get("Columns"), 1), num(p.v.get("Colors"), 1), num(p.v.get("BitsPerComponent"), 8));
-    else if (predictor !== 1) return null;
+/** The /Filter chain of a stream with each filter's /DecodeParms; null when malformed. */
+function filtersOf(dict: PdfDict): Filter[] | null {
+  const filter = dict.get("Filter");
+  const names = filter === undefined ? [] : filter.t === "arr" ? filter.v.map(nameOf) : [nameOf(filter)];
+  if (names.some((x) => x === null)) return null;
+  if (names.length === 0) return []; // a stray /DecodeParms without a filter changes nothing
+  const parms = dict.get("DecodeParms") ?? dict.get("DP");
+  const list = parms === undefined || parms.t === "null" ? [] : parms.t === "arr" ? parms.v : names.length === 1 ? [parms] : null;
+  if (list === null) return null; // one parameter dictionary for several filters: ambiguous
+  const out: Filter[] = [];
+  for (const [i, name] of names.entries()) {
+    const p = list[i];
+    if (p !== undefined && p.t !== "null" && p.t !== "dict") return null;
+    const v = p?.t === "dict" ? p.v : null;
+    out.push({
+      name: name as string,
+      parms:
+        v === null
+          ? NO_PREDICTOR
+          : { predictor: num(v.get("Predictor"), 1), columns: num(v.get("Columns"), 1), colors: num(v.get("Colors"), 1), bpc: num(v.get("BitsPerComponent"), 8), earlyChange: num(v.get("EarlyChange"), 1) },
+    });
   }
   return out;
+}
+
+/**
+ * Decoded stream data: no filter, or a chain of FlateDecode, LZWDecode, ASCII85Decode,
+ * ASCIIHexDecode and RunLengthDecode (with predictors; see filters.ts). Image codecs and
+ * malformed data give null: a caller that must read the stream fails closed.
+ */
+export async function decodeStream(s: Extract<PdfObj, { t: "stream" }>): Promise<Uint8Array | null> {
+  const filters = filtersOf(s.dict);
+  if (filters === null) return null;
+  if (filters.length === 0) return s.data;
+  return decodeFilters(s.data, filters, inflate);
 }
 
 type XrefEntry = { type: 1; offset: number } | { type: 2; stream: number; index: number };

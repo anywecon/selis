@@ -433,6 +433,7 @@ for (const lang of UI_LANGS) {
         await page.getByTestId("transfer-paste").click();
         await page.getByTestId("transfer-paste-input").fill(LINK);
         await page.getByTestId("transfer-paste-submit").click();
+        await page.getByTestId("transfer-link-accept").click();
         await hook("senderConfirms");
         await expect(page.getByTestId("transfer-paused-reason")).toBeVisible();
         for (const n of ["1", "2", "3"]) {

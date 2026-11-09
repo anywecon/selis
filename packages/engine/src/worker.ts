@@ -27,6 +27,7 @@ import fontUrl from "../assets/SelisSans-LatinGreek.ttf?url";
 import { EmbeddedText, fromPdfAnnotation, TEXT_STAMP_PREFIX, toPdfAnnotation, toSignatureStamp } from "./annotations";
 import { documentFields, flattenAll, pageWidgets, setField, toFormField } from "./forms";
 import { ImageFormatError, type ImageInput, ImagePdfBuilder } from "./images";
+import { UncheckedContentError } from "./pdf-objects";
 import { applyPageOp, extractPages } from "./pages";
 import { importLosses } from "./import-losses";
 import { applyRedactions } from "./redact";
@@ -111,6 +112,7 @@ function toError(err: unknown): { code: EngineErrorCode; message: string } {
     }
   }
   if (err instanceof ImageFormatError) return { code: "format", message: err.message };
+  if (err instanceof UncheckedContentError) return { code: "unchecked", message: err.message };
   return { code: "unknown", message: err instanceof Error ? err.message : String(err) };
 }
 

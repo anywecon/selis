@@ -14,7 +14,6 @@ use tauri::{AppHandle, Manager, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::{FsExt, OpenOptions};
 
-use super::library::parse_source;
 use super::{CommandError, CommandResult, ErrorCode, settings};
 use crate::requests::RequestResults;
 
@@ -38,7 +37,9 @@ pub enum PackImportView {
         document_ids: Vec<String>,
         duplicates: u32,
         signatures: u32,
-        settings: bool,
+        /// What the pack's settings would change here. Not applied: the user confirms them
+        /// first (and again when they delete history), then the UI calls `update_settings`.
+        settings: Option<settings::ForeignSettings>,
     },
     #[serde(rename_all = "camelCase")]
     Refused { problem: PackProblem },
@@ -123,7 +124,15 @@ pub async fn pack_kind<R: Runtime>(
     app: AppHandle<R>,
     source: String,
 ) -> CommandResult<Option<PackKind>> {
-    let path = parse_source(source.trim())?;
+    let path = super::picker::granted_source(&app, &source)?;
+    sniff_source(app, path).await
+}
+
+/// The first bytes of a source Rust already holds (an "Open with" item before the UI sees it).
+pub(crate) async fn sniff_source<R: Runtime>(
+    app: AppHandle<R>,
+    path: tauri_plugin_fs::FilePath,
+) -> CommandResult<Option<PackKind>> {
     tauri::async_runtime::spawn_blocking(move || {
         let mut opts = OpenOptions::new();
         opts.read(true);
@@ -216,7 +225,8 @@ fn chrono_free_date() -> String {
 }
 
 /// Imports a pack from a picked or shared file: checks everything first, then
-/// adds what is new (documents by BLAKE3), applies moved settings.
+/// adds what is new (documents by BLAKE3). The pack's settings are only described
+/// (security audit run-1, lead 4): nothing changes until the user confirms them.
 #[tauri::command]
 #[specta::specta]
 pub async fn pack_import<R: Runtime>(
@@ -230,7 +240,7 @@ pub async fn pack_import<R: Runtime>(
     let library = Arc::clone(&library);
     results
         .run_once(&request_id, "pack_import", async move {
-            let path = parse_source(source.trim())?;
+            let path = super::picker::granted_source(&app, &source)?;
             let local = share_dir(&app)?.join(format!(".import-{}.selispack", uuid_like()));
             let copy_to = local.clone();
             let app2 = app.clone();
@@ -259,19 +269,18 @@ pub async fn pack_import<R: Runtime>(
             let _ = std::fs::remove_file(&local);
             match outcome? {
                 Ok(imported) => {
-                    let had_settings = imported.settings.as_ref().is_some_and(|m| !m.is_empty());
-                    if let Some(map) = imported.settings
-                        && let Ok(patch) = serde_json::from_value::<settings::SettingsPatch>(
-                            serde_json::Value::Object(map),
-                        )
-                    {
-                        let _ = settings::apply_patch(&library, patch);
-                    }
+                    // The documents are in: a settings read error only drops the offer.
+                    let settings = imported.settings.and_then(|map| {
+                        settings::foreign_settings(&library, map).unwrap_or_else(|e| {
+                            eprintln!("selis: pack settings not read: {}", e.message);
+                            None
+                        })
+                    });
                     Ok(PackImportView::Imported {
                         document_ids: imported.document_ids,
                         duplicates: imported.duplicates,
                         signatures: imported.signatures,
-                        settings: had_settings,
+                        settings,
                     })
                 }
                 Err(e) => match problem(&e) {
@@ -305,9 +314,11 @@ pub async fn pick_pack<R: Runtime>(
         .run_once(&request_id, "pick_pack", async move {
             tauri::async_runtime::spawn_blocking(move || {
                 match app.dialog().file().blocking_pick_file() {
-                    Some(path) => super::picker::PickOutcome::Picked {
-                        source: super::picker::to_source(path),
-                    },
+                    Some(path) => {
+                        let source = super::picker::to_source(path);
+                        super::picker::grant(&app, &source);
+                        super::picker::PickOutcome::Picked { source }
+                    }
                     None => super::picker::PickOutcome::Cancelled,
                 }
             })

@@ -169,10 +169,19 @@ pub async fn pending_opens<R: Runtime>(
     android::drain(&app, &queue).await?;
     // Packs travel through the same "Open with" as PDFs; the magic bytes tell them apart.
     for item in queue.unsniffed() {
-        let kind = super::pack::pack_kind(app.clone(), item.source.clone()).await;
+        // The item came from Android, not from the UI: it is granted just below.
+        let path = item
+            .source
+            .parse::<tauri_plugin_fs::FilePath>()
+            .unwrap_or_else(|never| match never {});
+        let kind = super::pack::sniff_source(app.clone(), path).await;
         queue.mark_sniffed(&item.id, matches!(kind, Ok(Some(_))));
     }
-    Ok(queue.list())
+    let items = queue.list();
+    for item in &items {
+        super::picker::grant(&app, &item.source);
+    }
+    Ok(items)
 }
 
 /// Called once a pending document has been imported (or failed for good).

@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -7,7 +6,7 @@ use selis_core::{
     LibraryQuery, title_from_file_name,
 };
 use tauri::{AppHandle, Runtime, State};
-use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
+use tauri_plugin_fs::{FsExt, OpenOptions};
 
 use super::{CommandError, CommandResult, ErrorCode};
 use crate::requests::RequestResults;
@@ -57,7 +56,7 @@ async fn import<R: Runtime>(
             "empty source",
         ));
     }
-    let file_path = parse_source(&source)?;
+    let file_path = super::picker::granted_source(&app, &source)?;
     let title = name
         .as_deref()
         .map(title_from_file_name)
@@ -221,16 +220,6 @@ pub async fn record_document_info(
     pdf_title: Option<String>,
 ) -> CommandResult<Document> {
     Ok(library.record_document_info(&id, page_count, pdf_title.as_deref())?)
-}
-
-pub(crate) fn parse_source(source: &str) -> CommandResult<FilePath> {
-    if source.contains("://") {
-        source
-            .parse::<FilePath>()
-            .map_err(|e| CommandError::new(ErrorCode::InvalidArgument, format!("bad URI: {e}")))
-    } else {
-        Ok(FilePath::Path(PathBuf::from(source)))
-    }
 }
 
 /// Best-effort display name. SAF URIs often encode the file name in the last

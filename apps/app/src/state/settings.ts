@@ -5,7 +5,7 @@
  */
 import type { ThemeName } from "@selis/ui";
 import { create } from "zustand";
-import { api, type LibrarySort, type LibraryView, type LocalePref, type Settings, type ThemePref } from "../lib/api";
+import { api, type LibrarySort, type LibraryView, type LocalePref, type Settings, type SettingsPatch, type ThemePref } from "../lib/api";
 import { setDarkSystemBars } from "../lib/platform";
 import { type AppLocale, changeLocale, resolveLocale } from "../i18n";
 
@@ -30,6 +30,11 @@ type SettingsState = Settings & {
   ) => Promise<void>;
   /** A custom relay (`""` = the public relays). Rejects when Rust refuses the address. */
   setRelayUrl: (url: string) => Promise<void>;
+  /**
+   * Settings from a pack or another device, once the user confirmed them (ForeignSettingsSheet).
+   * Rejects when Rust refuses a value; nothing changes then.
+   */
+  applyPatch: (patch: SettingsPatch) => Promise<void>;
 };
 
 const DEFAULTS: Settings = {
@@ -204,6 +209,13 @@ export const useSettings = create<SettingsState>()((set, get) => {
     },
     setPreference: async (key, value) => {
       await persist({ [key]: value });
+    },
+    applyPatch: async (patch) => {
+      const saved = await api.updateSettings(patch);
+      set(saved);
+      writeBootSettings(saved);
+      applyTheme(saved.theme);
+      applyLocale(saved.locale);
     },
   };
 });

@@ -36,9 +36,10 @@ pub async fn stage_source<R: Runtime>(
     source: String,
 ) -> CommandResult<String> {
     let library = Arc::clone(&library);
+    // Only a source a picker or "Open with" handed out: the stage is readable by the UI.
+    let path = super::picker::granted_source(&app, &source)?;
     results
         .run_once(&request_id, "stage_source", async move {
-            let path = super::library::parse_source(source.trim())?;
             tauri::async_runtime::spawn_blocking(move || {
                 let mut opts = OpenOptions::new();
                 opts.read(true);

@@ -101,6 +101,20 @@ fn backup(conn: &Connection, db_path: &Path, from_version: u32) -> Result<()> {
 mod tests {
     use super::*;
 
+    /// RUSTSEC-2026-0459: the bundled SQLite must be 3.54 or later.
+    #[test]
+    fn the_bundled_sqlite_is_at_least_3_54() -> Result<()> {
+        let conn = open_in_memory()?;
+        let version: String = conn.query_row("SELECT sqlite_version()", [], |r| r.get(0))?;
+        println!("bundled SQLite {version}");
+        let parts: Vec<u32> = version.split('.').map(|p| p.parse().unwrap_or(0)).collect();
+        assert!(
+            parts.as_slice() >= [3, 54].as_slice(),
+            "bundled SQLite {version} is older than 3.54"
+        );
+        Ok(())
+    }
+
     #[test]
     fn fresh_db_reaches_latest_version() -> Result<()> {
         let conn = open_in_memory()?;

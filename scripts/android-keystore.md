@@ -70,7 +70,7 @@ website variable yourself or send me only that line:
 
 ```powershell
 $fp = ((keytool -list -v -keystore selis-release.jks -alias selis | Select-String "SHA256:").ToString() -replace '.*SHA256:\s*','' -replace ':','').ToLower()
-gh variable set SELIS_APK_CERT_SHA256 -R Fiouri/selis --body $fp
+gh variable set SELIS_APK_CERT_SHA256 -R anywecon/selis --body $fp
 ```
 
 ## 4. GitHub secrets
@@ -78,18 +78,18 @@ gh variable set SELIS_APK_CERT_SHA256 -R Fiouri/selis --body $fp
 `gh` reads secret values from stdin or prompts for them, so nothing lands in the shell history:
 
 ```powershell
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("selis-release.jks")) | gh secret set ANDROID_KEYSTORE_BASE64 -R Fiouri/selis
-gh secret set ANDROID_KEYSTORE_PASSWORD -R Fiouri/selis   # paste the step-1 password at the prompt
-gh secret set ANDROID_KEY_PASSWORD -R Fiouri/selis        # the same password (PKCS12)
-gh secret set ANDROID_KEY_ALIAS -R Fiouri/selis --body selis
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("selis-release.jks")) | gh secret set ANDROID_KEYSTORE_BASE64 -R anywecon/selis
+gh secret set ANDROID_KEYSTORE_PASSWORD -R anywecon/selis   # paste the step-1 password at the prompt
+gh secret set ANDROID_KEY_PASSWORD -R anywecon/selis        # the same password (PKCS12)
+gh secret set ANDROID_KEY_ALIAS -R anywecon/selis --body selis
 
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("selis-upload.jks")) | gh secret set ANDROID_UPLOAD_KEYSTORE_BASE64 -R Fiouri/selis
-gh secret set ANDROID_UPLOAD_KEYSTORE_PASSWORD -R Fiouri/selis   # the step-2 password
-gh secret set ANDROID_UPLOAD_KEY_PASSWORD -R Fiouri/selis        # the same password (PKCS12)
-gh secret set ANDROID_UPLOAD_KEY_ALIAS -R Fiouri/selis --body selis-upload
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("selis-upload.jks")) | gh secret set ANDROID_UPLOAD_KEYSTORE_BASE64 -R anywecon/selis
+gh secret set ANDROID_UPLOAD_KEYSTORE_PASSWORD -R anywecon/selis   # the step-2 password
+gh secret set ANDROID_UPLOAD_KEY_PASSWORD -R anywecon/selis        # the same password (PKCS12)
+gh secret set ANDROID_UPLOAD_KEY_ALIAS -R anywecon/selis --body selis-upload
 ```
 
-Check (names only, values are never shown): `gh secret list -R Fiouri/selis`.
+Check (names only, values are never shown): `gh secret list -R anywecon/selis`.
 
 ## 5. Play: use our app signing key (PEPK), register the upload key
 

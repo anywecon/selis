@@ -4,9 +4,9 @@
 
 <h1 align="center">Selis</h1>
 
-<p align="center">A free, open-source PDF editor for Android — your documents never leave your device.</p>
+<p align="center">A free, open-source PDF editor for Android. Your library stays on your phone.</p>
 
-<p align="center"><strong>No ads · No tracking · No account · No cloud</strong></p>
+<p align="center"><strong>No ads · No tracking · No account · No cloud storage</strong></p>
 
 <!--
   Store badges (App Store, Google Play, F-Droid, Obtainium, GitHub Releases, winget,

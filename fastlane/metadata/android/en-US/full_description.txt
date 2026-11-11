@@ -1,4 +1,4 @@
-Selis is a free, open-source PDF editor for your phone. Your documents stay on your device: no account, no cloud, no ads, no analytics, nothing collected.
+Selis is a free, open-source PDF editor for your phone. Your library stays on your device: no account, no cloud storage, no ads, no analytics, nothing collected.
 
 <b>Read</b>
 • Smooth scrolling even in documents of 1000+ pages

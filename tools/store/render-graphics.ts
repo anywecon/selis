@@ -26,7 +26,7 @@ import { chromium } from "playwright";
 const ROOT = join(import.meta.dirname, "..", "..");
 const META = join(ROOT, "fastlane", "metadata", "android");
 
-const TAGLINE = { title: "Selis", line: "PDFs on your phone. No account, no cloud, no tracking." };
+const TAGLINE = { title: "Selis", line: "PDFs on your phone. No account, no cloud storage, no tracking." };
 
 function token(css: string, name: string): string {
   const m = css.match(new RegExp(`--${name}:\\s*([^;]+);`));

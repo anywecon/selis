@@ -362,7 +362,7 @@ Public repo = δωρεάν GitHub Actions minutes, μαζί με macOS runners. 
 
 **Desktop updates:** Tauri updater (signed manifests) μόνο στα GitHub builds, ρητά opt-in στις ρυθμίσεις, απενεργοποιημένο σε store builds. Συμβατό με την αρχή «μηδέν network by default».
 
-**README:** logo, μία πρόταση, σειρά από badges (App Store, Google Play, F-Droid, Obtainium, GitHub Releases, winget, Microsoft Store), 4 screenshots, λίστα «No ads · No tracking · No account · No cloud», Exodus Privacy badge για Android, Features, Build from source, Contributing, Translations, License. Τα badges ζουν στο `docs/badges/` με τα επίσημα artwork κάθε store.
+**README:** logo, μία πρόταση, σειρά από badges (App Store, Google Play, F-Droid, Obtainium, GitHub Releases, winget, Microsoft Store), 4 screenshots, λίστα «No ads · No tracking · No account · No cloud storage», Exodus Privacy badge για Android, Features, Build from source, Contributing, Translations, License. Τα badges ζουν στο `docs/badges/` με τα επίσημα artwork κάθε store.
 
 **Versioning (ADR 0020):** SemVer (`X.Y.Z`, `X.Y.Z-rc.N`) με μία πηγή, το `version` του root `package.json` (`tools/release/version.ts`), Conventional Commits, `CHANGELOG.md` (Keep a Changelog, χειροκίνητο). build = ((major·100 + minor)·100 + patch)·100 + (N ή 99)· Android versionCode = build·10 + ψηφίο ABI· iOS CFBundleVersion = build.
 

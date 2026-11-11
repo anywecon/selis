@@ -62,7 +62,7 @@ export const COPY: Record<Lang, Copy> = {
     home: {
       title: "Selis — PDF editor for your phone",
       tagline: "Your PDFs, on your phone.",
-      lead: "Read, annotate, sign, fill in forms, organise pages, scan and send documents to your other devices. Free and open source; your library stays on your phone, and nothing is sent unless you send it.",
+      lead: "Read, annotate, sign, fill in forms, organise pages, scan and send documents to your other devices. Free and open source; your library stays on your phone, and no document is sent unless you send it.",
       cta: "Download",
       secondary: "See all features",
       pillars: ["No ads", "No tracking", "No account", "No cloud storage"],
@@ -130,7 +130,7 @@ export const COPY: Record<Lang, Copy> = {
     home: {
       title: "Selis — επεξεργαστής PDF για το κινητό",
       tagline: "Τα PDF σου, στο κινητό σου.",
-      lead: "Διάβασε, σχολίασε, υπόγραψε, συμπλήρωσε φόρμες, οργάνωσε σελίδες, σάρωσε και στείλε έγγραφα στις άλλες συσκευές σου. Δωρεάν και ανοιχτού κώδικα· η βιβλιοθήκη σου μένει στο κινητό σου και τίποτα δεν στέλνεται, εκτός αν το στείλεις εσύ.",
+      lead: "Διάβασε, σχολίασε, υπόγραψε, συμπλήρωσε φόρμες, οργάνωσε σελίδες, σάρωσε και στείλε έγγραφα στις άλλες συσκευές σου. Δωρεάν και ανοιχτού κώδικα· η βιβλιοθήκη σου μένει στο κινητό σου και κανένα έγγραφο δεν στέλνεται, εκτός αν το στείλεις εσύ.",
       cta: "Λήψη",
       secondary: "Όλες οι δυνατότητες",
       pillars: ["Χωρίς διαφημίσεις", "Χωρίς παρακολούθηση", "Χωρίς λογαριασμό", "Χωρίς αποθήκευση στο cloud"],

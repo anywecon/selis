@@ -17,7 +17,7 @@ Exported: 2026-10-09. Αν αλλάξει το live doc, ξανακάνε export
 
 **Αρχές προϊόντος (μη διαπραγματεύσιμες):**
 
-- No account, no login, no cloud. Ό,τι κάνει ο χρήστης μένει στη συσκευή.
+- No account, no login, no cloud storage. Ό,τι κάνει ο χρήστης μένει στη συσκευή.
 - Μηδέν network by default. Δίκτυο ανοίγει μόνο όταν ο χρήστης ξεκινά μεταφορά.
 - No ads, no tracking, no telemetry, no analytics SDKs.
 - Non-destructive: το αρχικό PDF δεν χάνεται ποτέ σιωπηλά. Κάθε save = νέα έκδοση.

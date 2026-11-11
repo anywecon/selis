@@ -44,7 +44,7 @@ owner:
 | Requirement (policy) | Selis |
 | --- | --- |
 | FOSS licence, OSI/FSF approved | Apache-2.0 |
-| Public source on Codeberg / GitLab / GitHub | <https://github.com/Fiouri/selis> |
+| Public source on Codeberg / GitLab / GitHub | <https://github.com/anywecon/selis> |
 | APK attached to a tagged GitHub release | `release.yml` attaches `selis-<v>-<abi>.apk` to `v<X.Y.Z>` releases |
 | "up to 30 megabytes per app … the upper size limit for single .apk files" | arm64-v8a APK 28.1 MB (1.0.0-rc.1, `docs/release/1.0-rc.md`) — inside, with 1.9 MB to spare; armeabi-v7a smaller; universal APK too large (not offered to them) |
 | Signed by the developer with a release key, not debuggable / testOnly | App signing key (ADR 0025); `check-release-apk.sh` in CI |
@@ -66,11 +66,11 @@ Title: `Selis — offline PDF reader, editor and scanner (com.anywecon.selis)`
 your own devices end-to-end encrypted. No account, no ads, no analytics.
 
 - Package name: `com.anywecon.selis`
-- Source: https://github.com/Fiouri/selis (Apache-2.0)
-- Releases: https://github.com/Fiouri/selis/releases — please use the `selis-<version>-arm64-v8a.apk`
+- Source: https://github.com/anywecon/selis (Apache-2.0)
+- Releases: https://github.com/anywecon/selis/releases — please use the `selis-<version>-arm64-v8a.apk`
   asset (28 MB; the universal APK is larger than your limit)
 - Fastlane metadata: `fastlane/metadata/android/` (en-US, el-GR)
-- Website and privacy policy: https://fiouri.github.io/selis/ · https://fiouri.github.io/selis/privacy/
+- Website and privacy policy: https://anywecon.github.io/selis/ · https://anywecon.github.io/selis/privacy/
 - Signing certificate SHA-256: `<APP_SIGNING_CERT_SHA256>`
 
 **Network:** none at start-up. The network is used only while the user has the Transfer screen
@@ -106,13 +106,13 @@ Their maintainers write the recipe; this draft follows their template and our CI
 `reproducible` job (`release-android.yml`). Paths in the image are theirs.
 
 ```yaml
-repository: https://github.com/Fiouri/selis.git
+repository: https://github.com/anywecon/selis.git
 updates: releases
 versions:
   - tag: v1.0.0
     apks:
       - apk_pattern: selis-1\.0\.0-arm64-v8a\.apk
-        apk_url: https://github.com/Fiouri/selis/releases/download/v1.0.0/selis-1.0.0-arm64-v8a.apk
+        apk_url: https://github.com/anywecon/selis/releases/download/v1.0.0/selis-1.0.0-arm64-v8a.apk
         build:
           - curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain none
           - . "$HOME/.cargo/env" && rustup show active-toolchain || rustup toolchain install

@@ -29,7 +29,7 @@ Exported: 2026-10-09. Αν αλλάξει το live doc, ξανακάνε export
 | Πεδίο | Τιμή |
 | --- | --- |
 | Working name | Selis (από «σελίς») — έλεγχος trademark, domain, store names πριν το publish |
-| Repo | github.com/Fiouri/selis (public) |
+| Repo | github.com/anywecon/selis (public) |
 | Bundle / package ID | com.anywecon.selis |
 | Άδεια κώδικα | Apache-2.0 (ίδια με EmbedPDF, store-compatible) |
 | Publisher | Any WeCon |

@@ -103,5 +103,5 @@ iOS, "Save Image" there asks for permission to add it to your photos.
 ## Changes and contact
 
 Changes to this policy are listed in the app's changelog and shown here with a new effective
-date. Questions: open an issue at <https://github.com/Fiouri/selis/issues>; report a security
-problem privately as described in <https://github.com/Fiouri/selis/security/policy>.
+date. Questions: open an issue at <https://github.com/anywecon/selis/issues>; report a security
+problem privately as described in <https://github.com/anywecon/selis/security/policy>.

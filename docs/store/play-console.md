@@ -6,7 +6,7 @@ before each release that changes networking, permissions or SDKs.
 
 ## Privacy policy
 
-URL: `https://fiouri.github.io/selis/privacy/` (website/, generated from docs/PRIVACY.md; Greek at
+URL: `https://anywecon.github.io/selis/privacy/` (website/, generated from docs/PRIVACY.md; Greek at
 `/el/privacy/`). Play requires a public, non-PDF, non-geofenced page
 (<https://support.google.com/googleplay/android-developer/answer/10144311>).
 

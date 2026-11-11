@@ -67,11 +67,11 @@ screen ([ADR 0031](docs/adr/0031-webview-minimum-and-fgs-below-android-14.md)). 
 **GitHub Releases:** every release has one signed APK per ABI and a universal APK, named
 `selis-<version>-<abi>.apk` (`arm64-v8a` for nearly every phone; also `armeabi-v7a`, `x86`,
 `x86_64`, `universal`), with a `SHA256SUMS` file. The APK signing certificate's SHA-256 is
-published on the [download page](https://fiouri.github.io/selis/download/).
+published on the [download page](https://anywecon.github.io/selis/download/).
 
 **Updates with [Obtainium](https://github.com/ImranR98/Obtainium):**
 
-1. Obtainium › Add app › App source URL: `https://github.com/Fiouri/selis`.
+1. Obtainium › Add app › App source URL: `https://github.com/anywecon/selis`.
 2. Additional options › **Filter APKs by regular expression**: `arm64-v8a\.apk$` (or the ABI of
    your device, or `universal\.apk$`). Asset names keep this pattern from release to release.
 3. Optional: **Include prereleases** to get release candidates (`1.0.0-rc.N`) too.

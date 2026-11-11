@@ -25,7 +25,7 @@ request in real time):
 
 ## Privacy policy URL
 
-`https://fiouri.github.io/selis/privacy/` (and `/el/privacy/`).
+`https://anywecon.github.io/selis/privacy/` (and `/el/privacy/`).
 
 ## Notes for App Review
 

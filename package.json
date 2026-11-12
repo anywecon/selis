@@ -2,7 +2,7 @@
   "name": "selis",
   "version": "1.0.0-rc.6",
   "private": true,
-  "description": "Selis — free, open-source PDF editor. No account, no cloud, no tracking.",
+  "description": "Selis — free, open-source PDF editor. No account, no cloud storage, no tracking.",
   "license": "Apache-2.0",
   "type": "module",
   "engines": {

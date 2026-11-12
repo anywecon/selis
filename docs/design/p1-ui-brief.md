@@ -68,7 +68,7 @@ Tokens come from `packages/ui/src/tokens.css` — never hardcode colors in compo
 - Segmented control (tablist): Αποστολή / Λήψη. Height 44, padding 3, radius 12, bg `--neutral-3`; selected segment bg `--surface-raised` + `--shadow-1`, radius 9, 14 px / 600.
 - Send card: "3 έγγραφα · 14,2 MB" 15 px / 600 + helper 13 px; QR 176 px on white with 10 px padding (QR always black on white, all themes); "Κωδικός επιβεβαίωσης" 12 px + code 30 px / 700 / letter-spacing .08em tabular ("482 913"); route chip 32 px (bg success-3, text success-11): "Ίδιο Wi‑Fi · απευθείας σύνδεση" / "Μέσω relay" variant.
 - Receive: dark camera viewfinder 320 px with 4 white corner brackets; button "Επικόλληση συνδέσμου" (48 px, outlined); helper about matching the 6-digit code.
-- Footer line with lock icon: "Κρυπτογραφημένο από άκρο σε άκρο. Χωρίς λογαριασμό, χωρίς cloud."
+- Footer line with lock icon: "Κρυπτογραφημένο από άκρο σε άκρο. Χωρίς λογαριασμό, χωρίς αποθήκευση στο cloud."
 - Trusted devices list: rows 60 px, 36 px icon tile, name 15 / 600, status 12, "Αποστολή" pill (disabled when offline).
 
 ## 6. Settings (Ρυθμίσεις) — P1

@@ -1,10 +1,11 @@
-**Current:** v1.0.0-rc.5 is a draft on GitHub Releases, built and signed by CI; not published and not on Play yet. Play Internal testing runs rc.4, Closed testing rc.1.
+**Current:** v1.0.0-rc.6 is published on GitHub Releases as a pre-release (2026-11-10). Play was last recorded at Internal testing rc.4 and Closed testing rc.1 (not re-checked on 2026-11-12). PR #115 (`docs/accurate-privacy-tagline-and-org-urls`, label `translation-pass`) is open and not merged: it corrects the privacy wording and moves the URLs to the anywecon organisation.
 **Next step:** owner:
-- publish the rc.5 draft and upload `selis-1.0.0-rc.5.aab` to Play Internal testing;
-- get 12 opted-in testers into Play Closed testing, then move Closed testing from rc.1 to the current RC;
-- on the S23, check text sharpness at fit-width and 100 %, and Convert/Export on the rc.5 build.
-Next development: merge chore/i18n-rc6 (rebased onto #114) once CI is green; then move tag v1.0.0-rc.6 to it (owner approved) and check the release draft; then AI features (ADR 0036).
-**Last session:** 2026-11-10 — rusqlite 0.41.1 (bundled SQLite 3.54.1) fixes RUSTSEC-2026-0459; `cargo deny` green with no ignores; Tier 1 green except 3 mDNS transfer tests that fail on main too (host network); Tier 2 AVD import-scroll-back, delete-rename, library-search-favorites, transfer, pack all pass. The rc.6 translation pass (27 Greek keys, `check-el --strict` passes, Greek screenshots checked on Pixel 7 + iPhone 15) was rebased onto it.
+- review and merge PR #115 once its checks are green (squash; no tag, no release);
+- paste the new Play listing texts (short and full description, en-US and el-GR) and upload the new feature graphic in Play Console; update the F-Droid merge request (!53588) with the new URLs; set the new marketing, privacy and support URLs in App Store Connect when the app is created; upload `docs/store/github-social-preview.png` in the repository settings;
+- copy the three SPEC changes (line 20 "no cloud storage", the repository row, the README list) into the live spec document, or the next export undoes them;
+- carried over, not re-checked: Play Internal testing build, 12 opted-in testers for Closed testing, S23 checks of text sharpness and Convert/Export.
+Next development: AI features (ADR 0036).
+**Last session:** 2026-11-12 — PR #115: privacy wording ("Your library stays on your phone", "No cloud storage"; en + el) in README, website, store listings and the Transfer footer; graphics line "PDFs on your phone. No account, no ads, no tracking."; URLs and `gh -R` commands moved to anywecon; 60 Linux visual baselines of the Transfer screens (en + el) replaced from CI, each differing from the old one only in the footer line. Verified locally: store-image guard, website build and 15 links, `check-el --strict`, typecheck, lint, 611 unit tests, Playwright en + el 166 passed; Maestro on AVD 36 (import-scroll-back, transfer, footer text) passed after the footer change. Not run: cargo fmt/clippy/test (no Rust source changed).
 
 
 ## v1.0.0-rc.5 (2026-11-04)

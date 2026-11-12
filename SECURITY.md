@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please **do not open a public issue**. Report privately through GitHub's
-[private vulnerability reporting](https://github.com/Fiouri/selis/security/advisories/new).
+[private vulnerability reporting](https://github.com/anywecon/selis/security/advisories/new).
 
 Include the affected version/commit, platform, steps to reproduce and impact. If a malicious
 PDF is involved, attach it to the private report (never to a public issue).

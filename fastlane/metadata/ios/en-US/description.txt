@@ -1,4 +1,4 @@
-Selis is a free, open-source PDF editor for your iPhone and iPad. Your documents stay on your device: no account, no cloud, no ads, no analytics, nothing collected.
+Selis is a free, open-source PDF editor for your iPhone and iPad. Your library stays on your device: no account, no cloud storage, no ads, no analytics, nothing collected.
 
 Read
 • Smooth scrolling even in documents of 1000+ pages
@@ -40,6 +40,6 @@ Never loses your original
 Imports are copies; the file you opened is never changed. Every save is a new version you can go back to, and autosave recovers your work after a crash.
 
 Private by design
-Selis uses the network only while the Transfer screen is open. When two devices cannot connect directly, the encrypted transfer goes through a relay (by default a public relay run by n0, the makers of iroh), which sees your IP address but cannot read your documents. You can turn the relay off ("Local network only") or point Selis at a relay you host yourself (iroh-relay is open source).
+Selis uses the network only while the Transfer screen is open or a transfer you started is running. When two devices cannot connect directly, the encrypted transfer goes through a relay (by default a public relay run by n0, the makers of iroh), which sees your IP address but cannot read your documents. You can turn the relay off ("Local network only") or point Selis at a relay you host yourself (iroh-relay is open source).
 
-Selis is open source under the Apache License 2.0: https://github.com/Fiouri/selis
+Selis is open source under the Apache License 2.0: https://github.com/anywecon/selis

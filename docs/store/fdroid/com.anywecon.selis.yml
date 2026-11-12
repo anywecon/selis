@@ -10,10 +10,10 @@ Categories:
   - File Transfer
 License: Apache-2.0
 AuthorName: Any WeCon
-SourceCode: https://github.com/Fiouri/selis
-IssueTracker: https://github.com/Fiouri/selis/issues
-Changelog: https://github.com/Fiouri/selis/blob/main/CHANGELOG.md
-WebSite: https://fiouri.github.io/selis/
+SourceCode: https://github.com/anywecon/selis
+IssueTracker: https://github.com/anywecon/selis/issues
+Changelog: https://github.com/anywecon/selis/blob/main/CHANGELOG.md
+WebSite: https://anywecon.github.io/selis/
 
 AutoName: Selis
 # Title, summary, description and screenshots come from fastlane/metadata/android/ in the repo.
@@ -25,7 +25,7 @@ AutoName: Selis
 #     en-US: Transfers that cannot connect directly go through a public relay run by n0 by default; it can be turned off (Local network only) or replaced by your own relay.
 
 RepoType: git
-Repo: https://github.com/Fiouri/selis.git
+Repo: https://github.com/anywecon/selis.git
 # Reproducible builds with our signature (ADR 0021): F-Droid builds, compares with our APK (each
 # build's `binary:`, the per-ABI APKs of the GitHub release) and publishes ours.
 # The SHA-256 of the app signing certificate (ADR 0025, scripts/android-keystore.md step 3).
@@ -35,7 +35,7 @@ Builds:
   - versionName: 1.0.0
     versionCode: 10000991
     commit: v1.0.0
-    binary: https://github.com/Fiouri/selis/releases/download/v%v/selis-%v-arm64-v8a.apk
+    binary: https://github.com/anywecon/selis/releases/download/v%v/selis-%v-arm64-v8a.apk
     subdir: apps/app/src-tauri/gen/android/app
     sudo:
       - apt-get update
@@ -65,7 +65,7 @@ Builds:
   - versionName: 1.0.0
     versionCode: 10000992
     commit: v1.0.0
-    binary: https://github.com/Fiouri/selis/releases/download/v%v/selis-%v-armeabi-v7a.apk
+    binary: https://github.com/anywecon/selis/releases/download/v%v/selis-%v-armeabi-v7a.apk
     subdir: apps/app/src-tauri/gen/android/app
     sudo:
       - apt-get update
@@ -95,7 +95,7 @@ Builds:
   - versionName: 1.0.0
     versionCode: 10000993
     commit: v1.0.0
-    binary: https://github.com/Fiouri/selis/releases/download/v%v/selis-%v-x86_64.apk
+    binary: https://github.com/anywecon/selis/releases/download/v%v/selis-%v-x86_64.apk
     subdir: apps/app/src-tauri/gen/android/app
     sudo:
       - apt-get update

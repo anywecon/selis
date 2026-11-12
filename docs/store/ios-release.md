@@ -33,11 +33,11 @@ the `.p8` once (it cannot be downloaded again). Note the **Key ID** and the **Is
 the table) and your **Team ID** (Membership details).
 
 ```powershell
-gh secret set APPLE_API_KEY_ID -R Fiouri/selis --body <KEY_ID>
-gh secret set APPLE_API_ISSUER -R Fiouri/selis --body <ISSUER_ID>
-gh secret set APPLE_DEVELOPMENT_TEAM -R Fiouri/selis --body <TEAM_ID>
-Get-Content -Raw AuthKey_<KEY_ID>.p8 | gh secret set APPLE_API_KEY_P8 -R Fiouri/selis
-gh variable set APPSTORE_APP_APPLE_ID -R Fiouri/selis --body <APP_APPLE_ID>
+gh secret set APPLE_API_KEY_ID -R anywecon/selis --body <KEY_ID>
+gh secret set APPLE_API_ISSUER -R anywecon/selis --body <ISSUER_ID>
+gh secret set APPLE_DEVELOPMENT_TEAM -R anywecon/selis --body <TEAM_ID>
+Get-Content -Raw AuthKey_<KEY_ID>.p8 | gh secret set APPLE_API_KEY_P8 -R anywecon/selis
+gh variable set APPSTORE_APP_APPLE_ID -R anywecon/selis --body <APP_APPLE_ID>
 ```
 
 Keep the `.p8` in your password manager; revoke it in App Store Connect if it leaks.

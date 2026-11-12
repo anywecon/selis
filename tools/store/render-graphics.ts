@@ -26,7 +26,7 @@ import { chromium } from "playwright";
 const ROOT = join(import.meta.dirname, "..", "..");
 const META = join(ROOT, "fastlane", "metadata", "android");
 
-const TAGLINE = { title: "Selis", line: "PDFs on your phone. No account, no cloud, no tracking." };
+const TAGLINE = { title: "Selis", line: "PDFs on your phone. No account, no ads, no tracking." };
 
 function token(css: string, name: string): string {
   const m = css.match(new RegExp(`--${name}:\\s*([^;]+);`));
@@ -66,7 +66,7 @@ async function main(): Promise<void> {
         body{background:linear-gradient(180deg,#2b4ea6,${accent});font-family:Inter,sans-serif;color:${paper};display:flex;align-items:center;gap:56px;padding:0 88px;box-sizing:border-box}
         svg{width:232px;height:232px;flex:none;filter:drop-shadow(0 12px 32px rgb(0 0 0 / .28))}
         h1{margin:0 0 18px;font-size:96px;font-weight:700;letter-spacing:-.02em;line-height:1}
-        p{margin:0;font-size:36px;font-weight:500;line-height:1.25;max-width:560px;color:#dfe6f7}
+        p{margin:0;font-size:36px;font-weight:500;line-height:1.25;max-width:560px;text-wrap:balance;color:#dfe6f7}
       </style>${svg}<div><h1>${text.title}</h1><p>${text.line}</p></div>`);
       // Runs in the page (DOM types are not in this Node project's lib).
       await page.evaluate("document.fonts.ready.then(() => true)");
@@ -84,7 +84,7 @@ async function main(): Promise<void> {
         body{background:linear-gradient(180deg,#2b4ea6,${accent});font-family:Inter,sans-serif;color:${paper};display:flex;align-items:center;gap:64px;padding:0 110px;box-sizing:border-box}
         svg{width:280px;height:280px;flex:none;filter:drop-shadow(0 12px 32px rgb(0 0 0 / .28))}
         h1{margin:0 0 20px;font-size:110px;font-weight:700;letter-spacing:-.02em;line-height:1}
-        p{margin:0;font-size:40px;font-weight:500;line-height:1.25;color:#dfe6f7}
+        p{margin:0;font-size:40px;font-weight:500;line-height:1.25;text-wrap:balance;color:#dfe6f7}
       </style>${svg}<div><h1>${TAGLINE.title}</h1><p>${TAGLINE.line}</p></div>`);
       await page.evaluate("document.fonts.ready.then(() => true)");
       await page.screenshot({ path: out });

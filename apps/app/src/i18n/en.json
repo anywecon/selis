@@ -80,7 +80,7 @@
     "tabsLabel": "Send or receive",
     "tabSend": "Send",
     "tabReceive": "Receive",
-    "lockFooter": "End-to-end encrypted. No account, no cloud.",
+    "lockFooter": "End-to-end encrypted. No account, no cloud storage.",
     "opening": "Getting ready…",
     "openFailed": "Transfer couldn’t start. Try again.",
     "retry": "Try again",

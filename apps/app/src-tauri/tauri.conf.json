@@ -78,7 +78,7 @@
     "copyright": "Copyright 2026 Any WeCon and Selis contributors",
     "category": "Productivity",
     "shortDescription": "Free, open-source PDF editor",
-    "longDescription": "Selis is a free, open-source PDF editor. No account, no cloud, no tracking: your documents stay on your device.",
+    "longDescription": "Selis is a free, open-source PDF editor. No account, no cloud storage, no tracking: your library stays on your device.",
     "license": "Apache-2.0",
     "icon": [
       "icons/32x32.png",

@@ -8,6 +8,12 @@ short summaries of these sections.
 
 ## [Unreleased]
 
+### Changed
+
+- The line under the Transfer screen reads "No account, no cloud storage" instead of "no
+  cloud": a transfer between two devices can pass through an encrypted relay. The store and
+  website texts say the same ("Your library stays on your phone").
+
 ## [1.0.0-rc.6] - 2026-11-08
 
 Sixth release candidate: redaction fixes, and transfers and packs ask before they change

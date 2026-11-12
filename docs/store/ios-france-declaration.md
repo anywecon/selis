@@ -50,7 +50,7 @@ The sections below follow the online form (notice §B).
 
 - **Type :** logiciel.
 - **Description générale :** Selis est une application mobile gratuite et open source (licence
-  Apache-2.0, code source public : <https://github.com/Fiouri/selis>) pour lire, annoter, signer,
+  Apache-2.0, code source public : <https://github.com/anywecon/selis>) pour lire, annoter, signer,
   organiser, numériser et convertir des documents PDF sur un téléphone ou une tablette. Les
   documents restent sur l'appareil ; l'application n'a ni compte utilisateur, ni serveur, ni
   publicité, ni statistiques d'usage. Elle permet aussi à l'utilisateur de transférer ses
@@ -106,7 +106,7 @@ par l'utilisateur au-delà du choix des mots de passe.
 
 | Pièce | Obligatoire | Source dans le dépôt |
 | --- | --- | --- |
-| Brochure commerciale | Oui | La fiche App Store (`fastlane/metadata/ios/fr-FR` à créer, ou l'anglais `en-US/description.txt`) en PDF, avec le site <https://fiouri.github.io/selis/> |
+| Brochure commerciale | Oui | La fiche App Store (`fastlane/metadata/ios/fr-FR` à créer, ou l'anglais `en-US/description.txt`) en PDF, avec le site <https://anywecon.github.io/selis/> |
 | Brochure technique | Oui | Ce document (sections 2.2–2.4) plus `docs/store/ios-export-compliance.md` et les ADR 0010, 0011, 0012, 0015, en PDF |
 | Attestation sur l'honneur | Oui | Modèle téléchargé dans la section « Pièces à joindre » du formulaire, rempli et signé par le bénéficiaire |
 | Kbis (ou extrait GEMI) + présentation de la société | Oui pour une première déclaration d'une personne morale | **[à compléter]** |
